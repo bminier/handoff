@@ -11,6 +11,7 @@ export interface PromptContext {
     title: string;
     body: string;
     url: string;
+    labels?: string[];
   };
   freeformDescription?: string;
 }
@@ -58,6 +59,10 @@ export function renderPrompt(ctx: PromptContext): string {
     lines.push(`## Issue #${ctx.issue.number}: ${ctx.issue.title}`);
     lines.push('');
     lines.push(`<${ctx.issue.url}>`);
+    if (ctx.issue.labels && ctx.issue.labels.length > 0) {
+      lines.push('');
+      lines.push(`**Labels:** ${ctx.issue.labels.map((l) => `\`${l}\``).join(', ')}`);
+    }
     lines.push('');
     lines.push(ctx.issue.body.trim() || '_(no body)_');
     lines.push('');
