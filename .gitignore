@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.*
+
+# Bun
+bun.lock
+.bun/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Handoff worktrees (sibling dirs)
+# (worktrees are created outside this repo, but lockfiles can land here)
+.handoff-runtime/
+
+# Coverage
+coverage/
+*.lcov
+
+# Misc
+.cache/
