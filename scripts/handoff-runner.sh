@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Wrapper invoked inside a freshly-spawned terminal window.
-# Usage: handoff-runner.sh <repo-root> <tool> <branch>
+# Usage: handoff-runner.sh <handoff-repo> <tool> <branch>
 #
-# Runs the chosen tool with PROMPT.md (in cwd) as the seed prompt, then on
-# exit invokes `bun <repo-root>/src/cli.ts cleanup <branch>` which removes
-# the worktree iff the PR has been merged.
+# <handoff-repo> is the path to the handoff CLI's checkout (where src/cli.ts
+# lives) — NOT the user's project repo. The cwd of this script is the worktree
+# of the user's project; PROMPT.md sits there.
+#
+# Runs the chosen tool with PROMPT.md as the seed prompt, then on exit invokes
+# `bun <handoff-repo>/src/cli.ts cleanup <branch>` which removes the worktree
+# iff the PR has been merged.
 
 set -uo pipefail
 
 if [ "$#" -ne 3 ]; then
-  echo "usage: handoff-runner.sh <repo-root> <tool> <branch>" >&2
+  echo "usage: handoff-runner.sh <handoff-repo> <tool> <branch>" >&2
   exit 64
 fi
 
-REPO_ROOT="$1"
+HANDOFF_REPO="$1"
 TOOL="$2"
 BRANCH="$3"
 
@@ -41,7 +45,7 @@ echo "----------------------------------------"
 echo "[handoff] $TOOL exited (code $TOOL_EXIT). Running cleanup for $BRANCH..."
 echo "----------------------------------------"
 
-bun "$REPO_ROOT/src/cli.ts" cleanup "$BRANCH"
+bun "$HANDOFF_REPO/src/cli.ts" cleanup "$BRANCH"
 CLEANUP_EXIT=$?
 
 echo

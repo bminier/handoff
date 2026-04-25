@@ -50,12 +50,21 @@ async function runHandoffs(tool: Tool, refs: Ref[]) {
   const repoRoot = await currentRepoRoot();
   const repo = await repoName();
   const parentBranch = await defaultBranch();
-  const runnerScript = resolveRunnerScript();
+  const handoffRoot = resolveHandoffRoot();
+  const runnerScript = resolveRunnerScript(handoffRoot);
 
   let failures = 0;
   for (const ref of refs) {
     try {
-      await spawnHandoff({ tool, ref, repoRoot, repo, parentBranch, runnerScript });
+      await spawnHandoff({
+        tool,
+        ref,
+        repoRoot,
+        repo,
+        parentBranch,
+        handoffRoot,
+        runnerScript,
+      });
     } catch (err) {
       failures += 1;
       const msg = err instanceof Error ? err.message : String(err);
@@ -71,6 +80,7 @@ interface SpawnInput {
   repoRoot: string;
   repo: string;
   parentBranch: string;
+  handoffRoot: string;
   runnerScript: string;
 }
 
@@ -112,17 +122,19 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
   await openTerminal({
     cwd: path,
     scriptPath: input.runnerScript,
-    args: [input.repoRoot, input.tool, branch],
+    args: [input.handoffRoot, input.tool, branch],
   });
   console.log(`[handoff] terminal launched for ${branch}`);
 }
 
-function resolveRunnerScript(): string {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // src/cli.ts → repo-root/scripts/handoff-runner.{sh|ps1}
-  const repoRoot = resolve(here, '..');
+function resolveHandoffRoot(): string {
+  // src/cli.ts → handoff-repo-root
+  return resolve(dirname(fileURLToPath(import.meta.url)), '..');
+}
+
+function resolveRunnerScript(handoffRoot: string): string {
   const isWin = platform() === 'win32';
-  const script = join(repoRoot, 'scripts', isWin ? 'handoff-runner.ps1' : 'handoff-runner.sh');
+  const script = join(handoffRoot, 'scripts', isWin ? 'handoff-runner.ps1' : 'handoff-runner.sh');
   if (!existsSync(script)) {
     throw new Error(
       `handoff: runner script not found at ${script}. ` +
