@@ -14,6 +14,7 @@ describe('renderPrompt', () => {
         title: 'Fix login redirect',
         body: 'After SSO, users are sent to /dashboard instead of the original URL.',
         url: 'https://github.com/x/y/issues/1',
+        labels: ['bug', 'auth'],
       },
     });
     expect(out).toContain('# Handoff: handoff');
@@ -21,6 +22,25 @@ describe('renderPrompt', () => {
     expect(out).toContain('After SSO, users are sent to /dashboard');
     expect(out).toContain('Workflow contract');
     expect(out).toContain('handoff/claude/1-fix-login');
+    expect(out).toContain('**Labels:** `bug`, `auth`');
+  });
+
+  it('omits the Labels line when there are no labels', () => {
+    const out = renderPrompt({
+      tool: 'claude',
+      repoName: 'handoff',
+      branch: 'handoff/claude/1-x',
+      parentBranch: 'main',
+      worktreePath: '/tmp/x',
+      issue: {
+        number: 1,
+        title: 'X',
+        body: 'body',
+        url: 'https://github.com/x/y/issues/1',
+        labels: [],
+      },
+    });
+    expect(out).not.toContain('**Labels:**');
   });
 
   it('renders a free-form handoff', () => {

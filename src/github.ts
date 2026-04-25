@@ -12,6 +12,7 @@ export interface IssueDetails {
   title: string;
   body: string;
   url: string;
+  labels: string[];
 }
 
 async function gh(args: readonly string[]): Promise<string> {
@@ -29,9 +30,23 @@ async function gh(args: readonly string[]): Promise<string> {
   }
 }
 
+interface RawIssuePayload {
+  number?: number;
+  title?: string;
+  body?: string;
+  url?: string;
+  labels?: Array<{ name?: string } | null>;
+}
+
 export async function fetchIssue(number: number): Promise<IssueDetails> {
-  const stdout = await gh(['issue', 'view', String(number), '--json', 'number,title,body,url']);
-  const parsed = JSON.parse(stdout) as Partial<IssueDetails>;
+  const stdout = await gh([
+    'issue',
+    'view',
+    String(number),
+    '--json',
+    'number,title,body,labels,url',
+  ]);
+  const parsed = JSON.parse(stdout) as RawIssuePayload;
   if (
     typeof parsed.number !== 'number' ||
     typeof parsed.title !== 'string' ||
@@ -40,11 +55,15 @@ export async function fetchIssue(number: number): Promise<IssueDetails> {
   ) {
     throw new GhError(`Unexpected gh issue payload: ${stdout.slice(0, 200)}`);
   }
+  const labels = Array.isArray(parsed.labels)
+    ? parsed.labels.flatMap((l) => (l && typeof l.name === 'string' ? [l.name] : []))
+    : [];
   return {
     number: parsed.number,
     title: parsed.title,
     body: parsed.body,
     url: parsed.url,
+    labels,
   };
 }
 
