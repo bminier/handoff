@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -124,8 +124,10 @@ function resolveRunnerScript(): string {
   const isWin = platform() === 'win32';
   const script = join(repoRoot, 'scripts', isWin ? 'handoff-runner.ps1' : 'handoff-runner.sh');
   if (!existsSync(script)) {
-    // Defensive: if we're being run from an unexpected location, ensure scripts dir resolves.
-    mkdirSync(dirname(script), { recursive: true });
+    throw new Error(
+      `handoff: runner script not found at ${script}. ` +
+        `The handoff CLI must be run from a checkout of the handoff repo (or an install that ships scripts/handoff-runner.{sh,ps1}).`,
+    );
   }
   return script;
 }
