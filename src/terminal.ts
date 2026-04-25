@@ -69,7 +69,7 @@ export function buildLaunchSpec(
   }
 
   if (plat === 'darwin') {
-    const argList = [input.scriptPath, ...scriptArgs].map(quoteForShell).join(' ');
+    const argList = ['bash', input.scriptPath, ...scriptArgs].map(quoteForShell).join(' ');
     const cmd = `cd ${quoteForShell(input.cwd)} && ${argList}`;
     return {
       command: 'osascript',
@@ -93,7 +93,7 @@ export function buildLaunchSpec(
   }
   return {
     command: 'xterm',
-    args: ['-e', `bash ${[input.scriptPath, ...scriptArgs].map(quoteForShell).join(' ')}`],
+    args: ['-e', 'bash', input.scriptPath, ...scriptArgs],
   };
 }
 
