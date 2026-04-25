@@ -1,58 +1,45 @@
-Please create for me a simple self contained skill that will create a new git worktree of the current repo, set it
+# Handoff: handoff
 
-&#x20;  up, create a PROMPT.md, and launch one of the following: claude, codex, or copilot using
+- **Tool:** `claude`
+- **Branch:** `claude/pr`
+- **Parent branch:** `dev`
+- **Worktree:** `D:\bminier\handoff-pr`
 
-&#x20; the prompt.md as the starting point in a new interactive terminal window, this should
+## Task
 
-&#x20; tailored towards feature branches, bug fixes, where the expectation is that work will be
+PR
 
-&#x20; done, commit(s) will be generated, PR's created, upon completion of the PR it should exit
+## Workflow contract
 
-&#x20; and cleanup it's worktree.  
+You are working in a dedicated git worktree on the branch shown above. The user has handed
+off a single, scoped unit of work. Follow this sequence:
 
+1. **Understand the task.** Re-read the issue or description above. If the task is ambiguous,
+   ask the user (in this terminal) one focused question before starting.
+2. **Implement.** Make the smallest set of changes that satisfies the task. Keep the diff
+   focused — do not refactor unrelated code, do not introduce new abstractions.
+3. **Verify.** Run the project's test suite, type checker, and linter. Fix anything you broke.
+4. **Commit.** Use Conventional Commits style. One logical commit per concern; small enough
+   to review.
+5. **Push.** `git push -u origin <branch>`.
+6. **Open the PR.** `gh pr create --base <parent-branch> --head <branch> --title "..."`.
+   Title should be a concise summary; body should reference the issue (e.g., `Closes #N`)
+   and summarize the change.
+7. **Stop.** The moment `gh pr create` returns a PR URL, your job is done. Print exactly
+   one line — `PR opened: <url>` — and exit the session. Do **not** call any more tools
+   after this point: no extra commits, no `gh pr edit`, no `gh pr view`, no follow-up
+   verification, no "one more thing" cleanup. The terminal wrapper takes over from here,
+   detects whether the PR has been merged, and cleans up the worktree. If you exit before
+   the PR is merged, the worktree is preserved and `handoff cleanup <branch>` removes it
+   later.
 
+   If you find yourself thinking "but I should also..." after the PR is open — stop. File
+   it as a follow-up comment on the PR *only* if it's a real issue you discovered; otherwise
+   leave it alone. The user explicitly does not want you to keep iterating after handoff.
 
-Ask questions if anything needs clarification.  Create ./docs/requirements.md and ./docs/implementation-plan.v0.1.0.md. There should be 1 pull request and that is when V0.1.0's implementation plan is complete.
-
-
-
-Follow best practices, install pre-commit-hooks, appropriate devops pipeline, create a README.md, CLAUDE.md, all the expected goodness.
-
-
-
-Use bun/typescript for any scripting required.
-
-
-
-
-
-
-
-\## Use cases
-
-
-
-"/handoff codex Issue #1"
-
-"/handoff copilot Issue #2"
-
-
-
-
-
-\## Question:
-
-
-
-* Can claude handle fleets, so we could handoff Issues 1 - 3 all at once?
-
-
-
-
-
-
-
-
-
-First, review this prompt to clean it up with anything I've forgotten or new information and save it to docs/initial-prompt.md
-
+**Boundaries.**
+- Do **not** touch files outside the scope of this task.
+- Do **not** delete or rewrite the worktree yourself — the wrapper handles that.
+- Do **not** open multiple PRs. One handoff = one PR.
+- If you cannot complete the task, leave the branch in a clean state, document what's left
+  in the PR description (or in a comment if the PR isn't open yet), and exit.
