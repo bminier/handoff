@@ -6,7 +6,7 @@ describe('buildLaunchSpec', () => {
     const spec = buildLaunchSpec('win32', {
       cwd: 'C:\\work\\repo',
       scriptPath: 'C:\\work\\repo\\runner.ps1',
-      args: ['claude', 'handoff/claude/1-foo'],
+      args: ['claude', 'claude/issue-1'],
     });
     expect(spec.command).toBe('wt.exe');
     expect(spec.args).toContain('-d');
@@ -30,7 +30,7 @@ describe('buildLaunchSpec', () => {
     const spec = buildLaunchSpec('linux', {
       cwd: '/work/repo',
       scriptPath: '/work/repo/runner.sh',
-      args: ['codex', 'handoff/codex/foo'],
+      args: ['codex', 'codex/issue-2'],
       terminal: 'gnome-terminal',
     });
     expect(spec.command).toBe('gnome-terminal');
@@ -56,11 +56,11 @@ describe('buildLaunchSpec', () => {
     const spec = buildLaunchSpec('linux', {
       cwd: '/x',
       scriptPath: '/x/r.sh',
-      args: ['claude', 'handoff/claude/foo'],
+      args: ['claude', 'claude/issue-3'],
       terminal: 'xterm',
     });
     expect(spec.command).toBe('xterm');
     // xterm -e expects the program and its args as separate argv items, not a single string.
-    expect(spec.args).toEqual(['-e', 'bash', '/x/r.sh', 'claude', 'handoff/claude/foo']);
+    expect(spec.args).toEqual(['-e', 'bash', '/x/r.sh', 'claude', 'claude/issue-3']);
   });
 });

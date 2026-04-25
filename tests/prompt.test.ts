@@ -6,7 +6,7 @@ describe('renderPrompt', () => {
     const out = renderPrompt({
       tool: 'claude',
       repoName: 'handoff',
-      branch: 'handoff/claude/1-fix-login',
+      branch: 'claude/issue-1',
       parentBranch: 'dev',
       worktreePath: '/work/handoff-handoff-1-fix-login',
       issue: {
@@ -21,7 +21,7 @@ describe('renderPrompt', () => {
     expect(out).toContain('## Issue #1: Fix login redirect');
     expect(out).toContain('After SSO, users are sent to /dashboard');
     expect(out).toContain('Workflow contract');
-    expect(out).toContain('handoff/claude/1-fix-login');
+    expect(out).toContain('claude/issue-1');
     expect(out).toContain('**Labels:** `bug`, `auth`');
   });
 
@@ -29,7 +29,7 @@ describe('renderPrompt', () => {
     const out = renderPrompt({
       tool: 'claude',
       repoName: 'handoff',
-      branch: 'handoff/claude/1-x',
+      branch: 'claude/issue-1',
       parentBranch: 'dev',
       worktreePath: '/tmp/x',
       issue: {
@@ -47,9 +47,9 @@ describe('renderPrompt', () => {
     const out = renderPrompt({
       tool: 'codex',
       repoName: 'handoff',
-      branch: 'handoff/codex/cleanup-readme',
+      branch: 'codex/cleanup-readme',
       parentBranch: 'dev',
-      worktreePath: '/work/handoff-handoff-cleanup-readme',
+      worktreePath: '/work/handoff-cleanup-readme',
       freeformDescription: 'Tidy up the README and add a usage example.',
     });
     expect(out).toContain('## Task');
@@ -61,7 +61,7 @@ describe('renderPrompt', () => {
     const out = renderPrompt({
       tool: 'copilot',
       repoName: 'handoff',
-      branch: 'handoff/copilot/2-noop',
+      branch: 'copilot/issue-2',
       parentBranch: 'dev',
       worktreePath: '/tmp/x',
       issue: {

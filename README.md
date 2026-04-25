@@ -59,8 +59,8 @@ handoff claude #42
 This:
 
 1. Resolves the GitHub issue title + body via `gh issue view 42`.
-2. Creates branch `handoff/claude/42-<slug>` off the repo's default branch.
-3. Adds a worktree as a sibling directory: `<repo-parent>/<repo>-handoff-42-<slug>`.
+2. Creates branch `claude/issue-42` off the repo's default branch.
+3. Adds a worktree as a sibling directory: `<repo-parent>/<repo>-issue-42`.
 4. Writes `PROMPT.md` to the worktree with the issue, the branch, and a workflow contract.
 5. Spawns a new terminal window in that worktree, running `claude "$(cat PROMPT.md)"`.
 
@@ -80,14 +80,14 @@ Three independent worktrees + three terminal windows, in parallel. Each opens it
 handoff codex "tighten error messages in the API client"
 ```
 
-No issue lookup. The text is passed as the task description in `PROMPT.md`. The branch becomes `handoff/codex/<slug>`.
+No issue lookup. The text is passed as the task description in `PROMPT.md`. The branch becomes `codex/<short-slug>` (slug capped at 20 chars).
 
 ### Cleanup
 
 If the wrapper missed cleanup (you closed the terminal before merging the PR, you ran `gh` while offline, etc.):
 
 ```bash
-handoff cleanup handoff/claude/42-fix-login
+handoff cleanup claude/issue-42
 ```
 
 This re-checks the PR state and removes the worktree + branch if merged.

@@ -28,8 +28,8 @@
 
 ### F3. Worktree creation
 
-- Branch name: `handoff/<tool>/<N>-<slug>` (issue) or `handoff/<tool>/<slug>` (free-form). Slug is kebab-cased title, max 40 chars.
-- Worktree path: sibling to the repo, `<parent>/<repo>-handoff-<branch-tail>`.
+- Branch name: `<tool>/issue-<N>` (issue), `<tool>/pr-<N>` (PR), or `<tool>/<slug>` (free-form). Slug is kebab-cased description, capped at 20 chars.
+- Worktree path: sibling to the repo, `<parent>/<repo>-<branch-tail>` (e.g. `<repo>-issue-7`, `<repo>-pr-12`, `<repo>-cleanup-readme`).
 - Branch off the repo's default branch (resolved via `gh repo view --json defaultBranchRef`), not the current HEAD.
 - Refuse to create a worktree for a branch that already exists; suggest re-running with `--resume` (post-v0.1.0).
 
