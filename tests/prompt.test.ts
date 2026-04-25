@@ -7,7 +7,7 @@ describe('renderPrompt', () => {
       tool: 'claude',
       repoName: 'handoff',
       branch: 'handoff/claude/1-fix-login',
-      parentBranch: 'main',
+      parentBranch: 'dev',
       worktreePath: '/work/handoff-handoff-1-fix-login',
       issue: {
         number: 1,
@@ -30,7 +30,7 @@ describe('renderPrompt', () => {
       tool: 'claude',
       repoName: 'handoff',
       branch: 'handoff/claude/1-x',
-      parentBranch: 'main',
+      parentBranch: 'dev',
       worktreePath: '/tmp/x',
       issue: {
         number: 1,
@@ -48,7 +48,7 @@ describe('renderPrompt', () => {
       tool: 'codex',
       repoName: 'handoff',
       branch: 'handoff/codex/cleanup-readme',
-      parentBranch: 'main',
+      parentBranch: 'dev',
       worktreePath: '/work/handoff-handoff-cleanup-readme',
       freeformDescription: 'Tidy up the README and add a usage example.',
     });
@@ -62,7 +62,7 @@ describe('renderPrompt', () => {
       tool: 'copilot',
       repoName: 'handoff',
       branch: 'handoff/copilot/2-noop',
-      parentBranch: 'main',
+      parentBranch: 'dev',
       worktreePath: '/tmp/x',
       issue: {
         number: 2,
