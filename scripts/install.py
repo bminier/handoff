@@ -72,7 +72,8 @@ def main() -> None:
         link_bin()
 
     print()
-    print("Done. Open a new Claude Code session in any repo and run `/handoff`.")
+    print("Done. Restart Claude Code (slash commands are loaded at session start),")
+    print("then run `/handoff` in any repo.")
 
 
 if __name__ == "__main__":
