@@ -1,0 +1,10 @@
+node_modules
+dist
+build
+coverage
+bun.lock
+*.lockb
+.handoff-runtime
+.obsidian
+docs/initial-prompt.md
+PROMPT.md
