@@ -48,14 +48,19 @@ describe('buildLaunchSpec', () => {
     expect(spec.args[0]).toBe('-e');
     expect(spec.args[1]).toContain('Terminal');
     expect(spec.args[1]).toContain('runner.sh');
+    // Invoke via bash explicitly so the script doesn't need the +x bit set.
+    expect(spec.args[1]).toContain('bash');
   });
 
-  it('falls back to xterm on linux', () => {
+  it('falls back to xterm on linux with separate argv items for -e', () => {
     const spec = buildLaunchSpec('linux', {
       cwd: '/x',
       scriptPath: '/x/r.sh',
+      args: ['claude', 'handoff/claude/foo'],
       terminal: 'xterm',
     });
     expect(spec.command).toBe('xterm');
+    // xterm -e expects the program and its args as separate argv items, not a single string.
+    expect(spec.args).toEqual(['-e', 'bash', '/x/r.sh', 'claude', 'handoff/claude/foo']);
   });
 });
