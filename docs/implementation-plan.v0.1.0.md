@@ -1,6 +1,6 @@
 # Implementation Plan — v0.1.0
 
-One PR (`dev → main`) lands all of v0.1.0. Commits below are the intended sequence inside that PR; the PR is opened only after the final commit.
+One PR into `dev` lands all of v0.1.0. Commits below are the intended sequence inside that PR; the PR is opened only after the final commit.
 
 ## Phase 0 — Repo bootstrap
 
@@ -10,7 +10,7 @@ One PR (`dev → main`) lands all of v0.1.0. Commits below are the intended sequ
 - `LICENSE` (MIT)
 - `.editorconfig`
 - Empty `README.md` placeholder
-- Initial commit lands on `main` so the PR has a base. All subsequent work is on `dev`.
+- Initial commit lands on `dev`; subsequent work is layered on top.
 
 ## Phase 1 — Toolchain
 
@@ -86,14 +86,14 @@ One PR (`dev → main`) lands all of v0.1.0. Commits below are the intended sequ
 
 **Commit:** `ci: github actions (lint, typecheck, test)`
 
-- `.github/workflows/ci.yml` — Ubuntu, `oven-sh/setup-bun`, runs `bun install`, `bun run lint`, `bun run typecheck`, `bun test`. Triggers on push to `dev` and PRs into `main`.
+- `.github/workflows/ci.yml` — Ubuntu, `oven-sh/setup-bun`, runs `bun install`, `bun run lint`, `bun run typecheck`, `bun test`. Triggers on push to `dev` / `prerelease/**` / `release/**` and PRs into the same.
 - `CHANGELOG.md` with v0.1.0 entry.
 - Bump version in `package.json` to `0.1.0`.
 
 ## Phase 9 — Open the PR
 
-- Push `main` and `dev` to `origin`.
-- `gh pr create --base main --head dev --title "feat: handoff v0.1.0"` with a body that links to `docs/requirements.md` and lists acceptance criteria.
+- Push the working branch and `dev` to `origin`.
+- `gh pr create --base dev --head <feature-branch> --title "feat: handoff v0.1.0"` with a body that links to `docs/requirements.md` and lists acceptance criteria.
 
 ## Risks / decisions deferred
 
