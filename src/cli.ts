@@ -86,20 +86,15 @@ interface SpawnInput {
 
 async function spawnHandoff(input: SpawnInput): Promise<void> {
   let issue: IssueDetails | undefined;
-  let slugSource: string;
+  let branch: string;
   if (input.ref.kind === 'issue') {
     issue = await fetchIssue(input.ref.number);
-    slugSource = issue.title;
+    branch = branchName({ tool: input.tool, issueNumber: issue.number });
   } else {
-    slugSource = input.ref.text;
+    const slug = slugify(input.ref.text, { maxLen: 20 });
+    branch = branchName({ tool: input.tool, slug });
   }
 
-  const slug = slugify(slugSource);
-  const branch = branchName({
-    tool: input.tool,
-    ...(issue ? { issueNumber: issue.number } : {}),
-    slug,
-  });
   const path = worktreePath({ repoRoot: input.repoRoot, branch });
 
   console.log(`[handoff] ${input.tool} → ${branch}`);

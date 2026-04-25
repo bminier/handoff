@@ -33,8 +33,8 @@ describe('parseInvocation', () => {
   });
 
   it('parses cleanup subcommand', () => {
-    const out = parseInvocation(['cleanup', 'handoff/claude/1-foo']);
-    expect(out).toEqual({ command: 'cleanup', branch: 'handoff/claude/1-foo' });
+    const out = parseInvocation(['cleanup', 'claude/issue-1']);
+    expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
   });
 
   it('rejects unknown tool', () => {
