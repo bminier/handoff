@@ -46,6 +46,8 @@ This:
 
 Pass `--no-link` to skip the CLI link and install only the slash command. Re-run after moving the checkout.
 
+> **Restart Claude Code after installing.** Slash commands under `~/.claude/commands/` are read at session start, so any sessions that were already open won't see `/handoff` until they're restarted.
+
 ## Usage
 
 ### Single issue
