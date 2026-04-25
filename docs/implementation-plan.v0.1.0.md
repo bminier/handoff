@@ -98,5 +98,5 @@ One PR (`dev → main`) lands all of v0.1.0. Commits below are the intended sequ
 ## Risks / decisions deferred
 
 - **Windows runner script**: if `wt.exe` is unavailable in the user's PATH the fallback uses `cmd`. We're not detecting Windows Terminal vs ConEmu vs Hyper — keeping it simple and documenting overrides via `terminalCommand` config.
-- **PR-merged detection race**: the cleanup hook polls once on agent exit. If the user closes their terminal *before* merging the PR, cleanup is skipped — `handoff cleanup <branch>` covers that.
+- **PR-merged detection race**: the cleanup hook polls once on agent exit. If the user closes their terminal _before_ merging the PR, cleanup is skipped — `handoff cleanup <branch>` covers that.
 - **Free-form refs**: argument boundary is naive (single shell-quoted string). Multiple free-form tasks in one fleet call are not supported in v0.1.0.

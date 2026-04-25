@@ -4,7 +4,7 @@ node_modules/
 .pnp.*
 
 # Bun
-bun.lock
+bun.lockb
 .bun/
 
 # Build artifacts
@@ -43,3 +43,4 @@ coverage/
 
 # Misc
 .cache/
+.obsidian/
