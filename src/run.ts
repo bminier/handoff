@@ -52,9 +52,10 @@ export function run(
       stderr += chunk.toString('utf8');
     });
     child.on('error', reject);
-    child.on('close', (code) => {
-      const result: RunResult = { stdout, stderr, exitCode: code ?? 0 };
-      if (result.exitCode !== 0) {
+    child.on('close', (code, signal) => {
+      const exitCode = code ?? (signal ? 128 : 0);
+      const result: RunResult = { stdout, stderr, exitCode };
+      if (code !== 0) {
         reject(new RunError(command, args, result));
         return;
       }
