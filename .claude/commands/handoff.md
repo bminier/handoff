@@ -7,7 +7,4 @@ allowed-tools: Bash
 Run the handoff CLI with the user's arguments. The CLI creates a worktree, writes
 `PROMPT.md`, and spawns a new terminal window running the chosen tool.
 
-!`bun run --cwd "${HANDOFF_REPO:-$(pwd)}" src/cli.ts $ARGUMENTS`
-
-The `${HANDOFF_REPO:-$(pwd)}` placeholder is rewritten to the checkout's absolute
-path by `scripts/install.py` when this command is installed into `~/.claude/commands/`.
+!`IFS=' ' read -ra ARGS <<< "$ARGUMENTS" && bun run --cwd "${HANDOFF_REPO:-$(pwd)}" src/cli.ts "${ARGS[@]}"`
