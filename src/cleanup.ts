@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { deleteBranch, removeWorktree } from './git.ts';
+import { branchExists, deleteBranch, removeWorktree } from './git.ts';
 import { branchTail, worktreePath } from './branch.ts';
 import { GhError, prMergedFor } from './github.ts';
 
@@ -33,15 +33,36 @@ export async function cleanup(branch: string, opts: { repoRoot: string }): Promi
     };
   }
 
-  if (existsSync(path)) {
+  const removedWorktree = existsSync(path);
+  if (removedWorktree) {
     await removeWorktree(path);
   }
-  await deleteBranch(branch).catch(() => {
-    // Branch may already be gone if the worktree removal pruned it; ignore.
-  });
+
+  let removedBranch = false;
+  if (await branchExists(branch)) {
+    try {
+      await deleteBranch(branch);
+      removedBranch = true;
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return {
+        status: 'unknown',
+        message:
+          `${removedWorktree ? `Removed worktree ${path}, but ` : ''}` +
+          `failed to delete branch ${branch}: ${reason}. ` +
+          `Delete it manually with \`git branch -D ${branch}\`.`,
+      };
+    }
+  }
+
+  const parts: string[] = [];
+  if (removedWorktree) parts.push(`Removed worktree ${path}`);
+  else parts.push(`Worktree ${path} was not present`);
+  if (removedBranch) parts.push(`deleted branch ${branch}`);
+  else parts.push(`branch ${branch} was already gone`);
 
   return {
     status: 'removed',
-    message: `Removed worktree ${path} and deleted branch ${branch} (PR merged). [${branchTail(branch)}]`,
+    message: `${parts.join(' and ')} (PR merged). [${branchTail(branch)}]`,
   };
 }

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ArgsError, parseInvocation, type Ref, type Tool } from './args.ts';
 import { branchName, worktreePath } from './branch.ts';
 import { cleanup } from './cleanup.ts';
-import { createWorktree, currentRepoRoot, repoName } from './git.ts';
+import { createWorktree, mainRepoRoot, repoName } from './git.ts';
 import { defaultBranch, fetchIssue, type IssueDetails } from './github.ts';
 import { renderPrompt } from './prompt.ts';
 import { slugify } from './slug.ts';
@@ -37,7 +37,7 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   if ('command' in invocation) {
-    const repoRoot = await currentRepoRoot();
+    const repoRoot = await mainRepoRoot();
     const result = await cleanup(invocation.branch, { repoRoot });
     console.log(result.message);
     return result.status === 'unknown' ? 1 : 0;
@@ -47,7 +47,7 @@ async function main(argv: readonly string[]): Promise<number> {
 }
 
 async function runHandoffs(tool: Tool, refs: Ref[]) {
-  const repoRoot = await currentRepoRoot();
+  const repoRoot = await mainRepoRoot();
   const repo = await repoName();
   const parentBranch = await defaultBranch();
   const handoffRoot = resolveHandoffRoot();
