@@ -1,4 +1,4 @@
-import { dirname } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { run } from './run.ts';
 
 export class GitError extends Error {
@@ -20,10 +20,12 @@ export async function currentRepoRoot(): Promise<string> {
  * handoff is invoked from inside a previous handoff's worktree.
  */
 export async function mainRepoRoot(): Promise<string> {
-  const { stdout } = await run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const { stdout } = await run('git', ['rev-parse', '--git-common-dir']);
   const gitDir = stdout.trim();
   if (!gitDir) throw new GitError('git rev-parse --git-common-dir returned empty output');
-  return dirname(gitDir);
+  // Pre-2.31, git returns this relative to cwd; resolve in TS to stay
+  // compatible with the documented `git ≥ 2.20` minimum.
+  return dirname(resolve(process.cwd(), gitDir));
 }
 
 export async function repoName(): Promise<string> {
