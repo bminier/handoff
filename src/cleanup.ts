@@ -35,7 +35,18 @@ export async function cleanup(branch: string, opts: { repoRoot: string }): Promi
 
   const worktreeExisted = existsSync(path);
   if (worktreeExisted) {
-    await removeWorktree(path);
+    try {
+      await removeWorktree(path);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      return {
+        status: 'unknown',
+        message:
+          `Failed to remove worktree ${path}: ${reason}. ` +
+          `Remove it manually with \`git worktree remove --force ${path}\` ` +
+          `and then \`git branch -D ${branch}\`.`,
+      };
+    }
   }
 
   let removedBranch = false;

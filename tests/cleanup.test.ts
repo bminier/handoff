@@ -120,6 +120,22 @@ describe('cleanup', () => {
     expect(calls.deleteBranch.length).toBe(0);
   });
 
+  it('returns "unknown" when worktree removal fails', async () => {
+    mergedReturn = true;
+    worktreeOnDisk = true;
+    removeWorktreeError = new Error('worktree is locked');
+
+    const result = await cleanup('claude/issue-4', { repoRoot: '/work/handoff' });
+
+    expect(result.status).toBe('unknown');
+    expect(result.message).toContain('Failed to remove worktree');
+    expect(result.message).toContain('locked');
+    expect(result.message).toContain('git worktree remove --force');
+    expect(result.message).toContain('git branch -D claude/issue-4');
+    expect(calls.removeWorktree.length).toBe(1);
+    expect(calls.deleteBranch.length).toBe(0);
+  });
+
   it('returns "unknown" when branch deletion fails after worktree removal', async () => {
     mergedReturn = true;
     worktreeOnDisk = true;
