@@ -1,3 +1,4 @@
+import { dirname } from 'node:path';
 import { run } from './run.ts';
 
 export class GitError extends Error {
@@ -12,8 +13,21 @@ export async function currentRepoRoot(): Promise<string> {
   return stdout.trim();
 }
 
+/**
+ * Root of the *main* worktree, even when called from inside a linked worktree.
+ * `currentRepoRoot()` returns whatever worktree we happen to be in, which makes
+ * worktree-path computation double up (e.g. `<repo>-issue-64-issue-64`) when
+ * handoff is invoked from inside a previous handoff's worktree.
+ */
+export async function mainRepoRoot(): Promise<string> {
+  const { stdout } = await run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const gitDir = stdout.trim();
+  if (!gitDir) throw new GitError('git rev-parse --git-common-dir returned empty output');
+  return dirname(gitDir);
+}
+
 export async function repoName(): Promise<string> {
-  const root = await currentRepoRoot();
+  const root = await mainRepoRoot();
   const parts = root.replace(/\\/g, '/').split('/');
   const last = parts[parts.length - 1];
   if (!last) throw new GitError(`Could not derive repo name from ${root}`);
