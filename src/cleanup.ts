@@ -33,8 +33,8 @@ export async function cleanup(branch: string, opts: { repoRoot: string }): Promi
     };
   }
 
-  const removedWorktree = existsSync(path);
-  if (removedWorktree) {
+  const worktreeExisted = existsSync(path);
+  if (worktreeExisted) {
     await removeWorktree(path);
   }
 
@@ -48,7 +48,7 @@ export async function cleanup(branch: string, opts: { repoRoot: string }): Promi
       return {
         status: 'unknown',
         message:
-          `${removedWorktree ? `Removed worktree ${path}, but ` : ''}` +
+          `${worktreeExisted ? `Removed worktree ${path}, but ` : ''}` +
           `failed to delete branch ${branch}: ${reason}. ` +
           `Delete it manually with \`git branch -D ${branch}\`.`,
       };
@@ -56,7 +56,7 @@ export async function cleanup(branch: string, opts: { repoRoot: string }): Promi
   }
 
   const parts: string[] = [];
-  if (removedWorktree) parts.push(`Removed worktree ${path}`);
+  if (worktreeExisted) parts.push(`Removed worktree ${path}`);
   else parts.push(`Worktree ${path} was not present`);
   if (removedBranch) parts.push(`deleted branch ${branch}`);
   else parts.push(`branch ${branch} was already gone`);
