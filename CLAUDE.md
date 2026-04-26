@@ -16,7 +16,6 @@
 | `src/github.ts`              | `gh` wrappers: `fetchIssue`, `defaultBranch`, `prMergedFor`               | I/O   |
 | `src/git.ts`                 | `git` wrappers: worktree create/remove, branch ops                        | I/O   |
 | `src/terminal.ts`            | Platform-aware terminal spawn (`buildLaunchSpec` is pure)                 | mixed |
-| `src/adapters.ts`            | Tool → binary name (one switch)                                           | yes   |
 | `src/cleanup.ts`             | PR-merged check → remove worktree + branch                                | I/O   |
 | `src/run.ts`                 | `spawn` wrapper with structured errors                                    | I/O   |
 | `src/config.ts`              | `VERSION`, `HELP`                                                         | yes   |
@@ -43,10 +42,9 @@ Tests live in `tests/` and cover the **pure** modules. I/O modules are smoke-tes
 ## How to add a new adapter
 
 1. Add the tool string to `TOOLS` in `src/args.ts`.
-2. Add a `case` in `toolBinary` in `src/adapters.ts`.
-3. Add the tool name to the `case` in `scripts/handoff-runner.sh` and the `ValidateSet` in `scripts/handoff-runner.ps1`.
-4. Update `README.md` requirements list.
-5. Add a test for the new tool path in `tests/args.test.ts`.
+2. Add the tool name to the `case` in `scripts/handoff-runner.sh` and the `ValidateSet` in `scripts/handoff-runner.ps1` (the runner scripts invoke the tool binary directly — currently the tool name == binary name).
+3. Update `README.md` requirements list.
+4. Add a test for the new tool path in `tests/args.test.ts`.
 
 ## How to extend the workflow contract in `PROMPT.md`
 

@@ -105,7 +105,6 @@ src/
 ├── github.ts     — gh wrappers
 ├── git.ts        — git worktree wrappers
 ├── terminal.ts   — cross-platform window spawn
-├── adapters.ts   — tool → binary name
 ├── cleanup.ts    — PR-merged check + worktree teardown
 ├── config.ts     — VERSION, HELP
 └── run.ts        — typed spawn helper
