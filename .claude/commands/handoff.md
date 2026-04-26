@@ -7,4 +7,4 @@ allowed-tools: Bash
 Run the handoff CLI with the user's arguments. The CLI creates a worktree, writes
 `PROMPT.md`, and spawns a new terminal window running the chosen tool.
 
-!`IFS=' ' read -ra ARGS <<< "$ARGUMENTS" && bun run --cwd "${HANDOFF_REPO:-$(pwd)}" src/cli.ts "${ARGS[@]}"`
+!`xargs bun run --cwd "${HANDOFF_REPO:-$(pwd)}" src/cli.ts <<< "$ARGUMENTS"`
