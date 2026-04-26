@@ -33,24 +33,20 @@ cd handoff
 bun install
 ```
 
-Make the CLI runnable from anywhere by either:
-
-**A. Bun bin link** (recommended):
+Then run the installer:
 
 ```bash
-bun link
-# now `handoff` is on your PATH
+python scripts/install.py
 ```
 
-**B. Set an env var and use the slash command** (for Claude Code users):
+This:
 
-```bash
-export HANDOFF_REPO="$(pwd)"
-mkdir -p ~/.claude/commands
-ln -s "$HANDOFF_REPO/.claude/commands/handoff.md" ~/.claude/commands/handoff.md
-```
+1. Renders `.claude/commands/handoff.md` into `~/.claude/commands/handoff.md` with this checkout's absolute path baked in, so `/handoff` works in any Claude Code session.
+2. Runs `bun link` so the `handoff` CLI is on your PATH.
 
-Now `/handoff codex #1` works inside any Claude Code session.
+Pass `--no-link` to skip the CLI link and install only the slash command. Re-run after moving the checkout.
+
+> **Restart Claude Code after installing.** Slash commands under `~/.claude/commands/` are read at session start, so any sessions that were already open won't see `/handoff` until they're restarted.
 
 ## Usage
 

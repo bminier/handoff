@@ -9,5 +9,5 @@ Run the handoff CLI with the user's arguments. The CLI creates a worktree, write
 
 !`bun run --cwd "${HANDOFF_REPO:-$(pwd)}" src/cli.ts $ARGUMENTS`
 
-If you got an error about `HANDOFF_REPO`, the user needs to set that env var to the
-absolute path of their `handoff` repo checkout (e.g., `export HANDOFF_REPO=~/code/handoff`).
+The `${HANDOFF_REPO:-$(pwd)}` placeholder is rewritten to the checkout's absolute
+path by `scripts/install.py` when this command is installed into `~/.claude/commands/`.
