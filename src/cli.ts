@@ -65,11 +65,18 @@ async function runHandoffs(tool: Tool, refs: Ref[]) {
         handoffRoot,
         runnerScript,
       });
+      console.log(`[handoff] OK ${describeRef(ref)}`);
     } catch (err) {
       failures += 1;
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[handoff] FAILED for ${describeRef(ref)}: ${msg}`);
     }
+  }
+  if (refs.length > 1) {
+    const ok = refs.length - failures;
+    console.log(
+      `[handoff] ${ok}/${refs.length} succeeded${failures ? `, ${failures} failed` : ''}`,
+    );
   }
   return failures === 0 ? 0 : 1;
 }
