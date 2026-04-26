@@ -1,6 +1,6 @@
 # Initial Prompt
 
-> Verbatim (lightly cleaned: fixed copy-paste artifacts like `&#x20;`, `\##`, and stray line breaks). Original lives at `../PROMPT.md`.
+> Verbatim (lightly cleaned: fixed copy-paste artifacts like `&#x20;`, `\##`, and stray line breaks). The original root `PROMPT.md` was removed once this canonical copy landed; runtime `PROMPT.md` files are written into per-handoff worktrees by the CLI.
 
 ---
 

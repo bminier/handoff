@@ -44,3 +44,6 @@ coverage/
 # Misc
 .cache/
 .obsidian/
+
+# Private follow-up notes (the seed prompt is preserved in docs/initial-prompt.md)
+TODO.md
