@@ -32,10 +32,17 @@ off a single, scoped unit of work. Follow this sequence:
 6. **Open the PR.** \`gh pr create --base <parent-branch> --head <branch> --title "..."\`.
    Title should be a concise summary; body should reference the issue (e.g., \`Closes #N\`)
    and summarize the change.
-7. **Exit.** When the PR is open, exit this session normally. The terminal wrapper will
-   detect whether the PR has been merged and clean up the worktree automatically. If you
-   exit before the PR is merged, the worktree is preserved and \`handoff cleanup <branch>\`
-   removes it later.
+7. **Stop.** The moment \`gh pr create\` returns a PR URL, your job is done. Print exactly
+   one line — \`PR opened: <url>\` — and exit the session. Do **not** call any more tools
+   after this point: no extra commits, no \`gh pr edit\`, no \`gh pr view\`, no follow-up
+   verification, no "one more thing" cleanup. The terminal wrapper takes over from here,
+   detects whether the PR has been merged, and cleans up the worktree. If you exit before
+   the PR is merged, the worktree is preserved and \`handoff cleanup <branch>\` removes it
+   later.
+
+   If you find yourself thinking "but I should also..." after the PR is open — stop. File
+   it as a follow-up comment on the PR *only* if it's a real issue you discovered; otherwise
+   leave it alone. The user explicitly does not want you to keep iterating after handoff.
 
 **Boundaries.**
 - Do **not** touch files outside the scope of this task.
