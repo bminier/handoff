@@ -31,24 +31,21 @@ Cross-platform: Windows (Windows Terminal preferred, falls back to `cmd`), macOS
 git clone git@github.com:bminier/handoff.git
 cd handoff
 bun install
+python scripts/install.py
 ```
 
-Make the CLI runnable from anywhere by either:
+`scripts/install.py` does two things:
 
-**A. Bun bin link** (recommended):
+1. Renders the Claude Code slash command into `~/.claude/commands/handoff.md` with the absolute path of this checkout baked in — no `HANDOFF_REPO` env var needed.
+2. Runs `bun link` so the `handoff` CLI lands on your `PATH`.
+
+Pass `--no-link` to install the slash command only (skips `bun link`):
 
 ```bash
-bun link
-# now `handoff` is on your PATH
+python scripts/install.py --no-link
 ```
 
-**B. Set an env var and use the slash command** (for Claude Code users):
-
-```bash
-export HANDOFF_REPO="$(pwd)"
-mkdir -p ~/.claude/commands
-ln -s "$HANDOFF_REPO/.claude/commands/handoff.md" ~/.claude/commands/handoff.md
-```
+> **Restart Claude Code after install.** Slash commands under `~/.claude/commands/` are read once at session start, so any session you had open before running the installer will not see `/handoff` until it's restarted.
 
 Now `/handoff codex #1` works inside any Claude Code session.
 
