@@ -23,8 +23,9 @@ TARGET_CMD = TARGET_DIR / "handoff.md"
 
 # Surrounding double quotes are part of the sentinel so the substitution only
 # hits the bash `--cwd` argument and never the markdown-backticked prose that
-# explains the placeholder. The replacement uses `shlex.quote` (single-quoted)
-# so a checkout path containing `$`, backticks, or whitespace stays inert.
+# explains the placeholder. The replacement uses `shlex.quote`, which adds
+# single quotes only if the path needs them — so a checkout containing `$`,
+# backticks, or whitespace stays inert and a "boring" path stays unquoted.
 PLACEHOLDER = '"${HANDOFF_REPO:-$(pwd)}"'
 
 

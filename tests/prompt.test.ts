@@ -8,7 +8,7 @@ describe('renderPrompt', () => {
       repoName: 'handoff',
       branch: 'claude/issue-1',
       parentBranch: 'dev',
-      worktreePath: '/work/handoff-handoff-1-fix-login',
+      worktreePath: '/work/handoff-issue-1',
       issue: {
         number: 1,
         title: 'Fix login redirect',
