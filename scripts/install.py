@@ -10,6 +10,7 @@ Re-run this after moving the checkout.
 from __future__ import annotations
 
 import argparse
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,7 +21,11 @@ SOURCE_CMD = REPO_ROOT / ".claude" / "commands" / "handoff.md"
 TARGET_DIR = Path.home() / ".claude" / "commands"
 TARGET_CMD = TARGET_DIR / "handoff.md"
 
-PLACEHOLDER = "${HANDOFF_REPO:-$(pwd)}"
+# Surrounding double quotes are part of the sentinel so the substitution only
+# hits the bash `--cwd` argument and never the markdown-backticked prose that
+# explains the placeholder. The replacement uses `shlex.quote` (single-quoted)
+# so a checkout path containing `$`, backticks, or whitespace stays inert.
+PLACEHOLDER = '"${HANDOFF_REPO:-$(pwd)}"'
 
 
 def install_command() -> None:
@@ -35,7 +40,7 @@ def install_command() -> None:
         )
 
     repo_path = REPO_ROOT.as_posix()
-    rendered = body.replace(PLACEHOLDER, repo_path)
+    rendered = body.replace(PLACEHOLDER, shlex.quote(repo_path))
 
     TARGET_DIR.mkdir(parents=True, exist_ok=True)
     TARGET_CMD.write_text(rendered, encoding="utf-8")
@@ -43,17 +48,19 @@ def install_command() -> None:
     print(f"          repo path baked in : {repo_path}")
 
 
-def link_bin() -> None:
+def link_bin() -> bool:
     bun = shutil.which("bun")
     if bun is None:
-        print("[install] WARNING: `bun` not found on PATH; skipping `bun link`.")
-        return
+        print("[install] ERROR: `bun` not found on PATH; cannot run `bun link`.")
+        print("          Install bun (https://bun.sh) and re-run, or pass --no-link.")
+        return False
     try:
         subprocess.run([bun, "link"], cwd=REPO_ROOT, check=True)
     except subprocess.CalledProcessError as exc:
-        print(f"[install] WARNING: `bun link` exited {exc.returncode}.")
-        return
+        print(f"[install] ERROR: `bun link` exited {exc.returncode}.")
+        return False
     print("[install] `bun link` succeeded; `handoff` should be on PATH.")
+    return True
 
 
 def main() -> None:
@@ -68,12 +75,23 @@ def main() -> None:
     args = parser.parse_args()
 
     install_command()
+
+    linked = True
     if not args.no_link:
-        link_bin()
+        linked = link_bin()
 
     print()
-    print("Done. Restart Claude Code (slash commands are loaded at session start),")
-    print("then run `/handoff` in any repo.")
+    if linked:
+        print("Done. Restart Claude Code (slash commands are loaded at session start),")
+        if args.no_link:
+            print("then run `/handoff` in any repo. (Skipped `bun link` per --no-link;")
+            print("the `handoff` CLI is not on PATH unless you linked it yourself.)")
+        else:
+            print("then run `/handoff` in any repo.")
+    else:
+        print("Slash command installed, but the `handoff` CLI is NOT on PATH.")
+        print("Fix the `bun link` failure above (or re-run with --no-link to silence it).")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -18,6 +18,7 @@ You have a backlog. You have three different agents you'd like to try on it. You
 - [bun](https://bun.sh) ≥ 1.1
 - `git` ≥ 2.20 (for `git worktree`)
 - [`gh`](https://cli.github.com) authenticated (`gh auth login`)
+- Python ≥ 3.8 (only for `scripts/install.py` — invoke as `python3` on macOS/Linux, `py -3` on Windows if `python` isn't on PATH)
 - The agent CLI you want to dispatch to:
   - `claude` → [Anthropic Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code)
   - `codex` → [OpenAI Codex CLI](https://github.com/openai/codex)
@@ -41,7 +42,7 @@ python scripts/install.py
 
 This:
 
-1. Renders `.claude/commands/handoff.md` into `~/.claude/commands/handoff.md` with this checkout's absolute path baked in, so `/handoff` works in any Claude Code session.
+1. Renders `.claude/commands/handoff.md` into `~/.claude/commands/handoff.md` with this checkout's absolute path baked in, so `/handoff` works in any Claude Code session started after install.
 2. Runs `bun link` so the `handoff` CLI is on your PATH.
 
 Pass `--no-link` to skip the CLI link and install only the slash command. Re-run after moving the checkout.
