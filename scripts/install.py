@@ -46,6 +46,18 @@ def install_command() -> None:
         )
 
     cli_path = (REPO_ROOT / "src" / "cli.ts").as_posix()
+    # The slash command body wraps the shell invocation in a Markdown inline-code
+    # span (`!\`...\``), so a literal backtick in the path would terminate the
+    # span and corrupt the rendered command — `shlex.quote` only protects the
+    # shell layer, not the Markdown layer above it. Bail with a clear error
+    # rather than write a silently broken slash command.
+    if "`" in cli_path:
+        sys.exit(
+            f"error: checkout path {cli_path!r} contains a backtick. "
+            "The slash command is wrapped in Markdown inline code, so a literal "
+            "backtick would break the rendered command. Move the checkout to a "
+            "backtick-free path and re-run."
+        )
     rendered = body.replace(PLACEHOLDER, shlex.quote(cli_path))
 
     TARGET_DIR.mkdir(parents=True, exist_ok=True)
