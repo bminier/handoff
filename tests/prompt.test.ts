@@ -101,6 +101,13 @@ describe('renderPrompt', () => {
     // Bail and merge-policy guards.
     expect(out).toContain('[handoff loop] bailing');
     expect(out).toContain('You do not merge the PR');
+    // Real gh commands — `gh pr review --request` doesn't exist; reviewer
+    // re-requests go through `gh pr edit --add-reviewer`. Don't regress.
+    expect(out).toContain('gh pr edit <number> --add-reviewer');
+    expect(out).not.toContain('gh pr review --request');
+    // `mergeable` is a tri-state enum (MERGEABLE/CONFLICTING/UNKNOWN), not a boolean.
+    expect(out).toContain('CONFLICTING');
+    expect(out).not.toContain('mergeable: false');
     // Bot reviewers explicitly named.
     expect(out).toContain('Copilot');
   });

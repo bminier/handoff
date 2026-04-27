@@ -91,15 +91,19 @@ cycle until the PR merges. Follow this sequence:
        but still implement at the source rather than copy-pasting suggestions blindly.
    - **Commit and push.** New commits per round, conventional style. Do **not** force-push
      unless a reviewer explicitly asked you to rebase.
-   - **Re-request review.** If you pushed fixes addressing a specific reviewer, ping them
-     with \`gh pr review --request <login>\` or a brief comment.
+   - **Re-request review.** If you pushed fixes addressing a specific reviewer, re-request
+     them with \`gh pr edit <number> --add-reviewer <login>\`, or leave a brief comment
+     summarising what changed.
 8. **Bail conditions.** Exit the loop (and the session) with a status comment on the PR
    explaining what's blocking, in any of these cases:
    - Iteration cap reached (5 rounds without merging).
    - CI failing for a reason you can't resolve (e.g., infra outage, secrets you don't have,
      a test that needs human judgment).
    - Merge conflict you can't cleanly resolve.
-   - \`mergeable: false\` after a round, indicating divergence the human needs to settle.
+   - GitHub reports the PR is non-mergeable after a round — \`mergeable\` is the string
+     \`"CONFLICTING"\` (or \`"UNKNOWN"\` that doesn't clear on the next poll), or
+     \`mergeStateStatus\` is \`"DIRTY"\` / \`"BEHIND"\` / \`"BLOCKED"\` for reasons you can't
+     resolve. (\`mergeable\` is a tri-state enum, not a boolean — don't compare to \`false\`.)
    - Reviewer asks for a change that contradicts the issue spec — surface the conflict, ask
      the user, then exit.
    When bailing, leave a single comment on the PR titled \`[handoff loop] bailing\` with the

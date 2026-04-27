@@ -55,6 +55,29 @@ describe('parseInvocation', () => {
     });
   });
 
+  it('parses --loop after refs', () => {
+    // Common typo: flag trails the ref. Should still set loop, not create a
+    // phantom freeform handoff with text "--loop".
+    const out = parseInvocation(['claude', '#1', '--loop']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'issue', number: 1 }],
+      loop: true,
+    });
+  });
+
+  it('parses --loop interleaved with refs', () => {
+    const out = parseInvocation(['claude', '#1', '--loop', '#2']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [
+        { kind: 'issue', number: 1 },
+        { kind: 'issue', number: 2 },
+      ],
+      loop: true,
+    });
+  });
+
   it('rejects --loop for codex', () => {
     expect(() => parseInvocation(['codex', '--loop', '#1'])).toThrow(/--loop is only supported/);
   });

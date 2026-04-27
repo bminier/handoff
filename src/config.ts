@@ -4,7 +4,8 @@ export const VERSION = '0.1.0';
 export const HELP = `handoff v${VERSION}
 
 USAGE
-  handoff <tool> [--loop] <ref...> spawn a worktree per ref and launch <tool>
+  handoff <tool> <ref...>          spawn a worktree per ref and launch <tool>
+  handoff claude [--loop] <ref...> claude only: stay resident through review (see FLAGS)
   handoff cleanup <branch>         remove a worktree if its PR has merged
   handoff --help                   show this message
   handoff --version                show version

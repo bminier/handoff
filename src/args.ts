@@ -90,19 +90,39 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     );
   }
 
-  // Pull out flags before ref parsing so they can appear anywhere after the tool.
-  // Stop flag-extraction at the first non-flag token so flag-looking free-form
-  // text (rare) still parses as the start of a description.
-  const rest: string[] = [];
+  const rest = argv.slice(1);
+  if (rest.length === 0) {
+    throw new ArgsError(`Missing issue reference. Usage: handoff ${head} <ref...>`);
+  }
+
+  // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop` is the
+  // flag and may appear anywhere among the issue refs (before, between, after).
+  // The first token that is neither a flag nor an issue-ref pattern flips us
+  // into free-form mode, and from there everything (including a literal
+  // `--loop`) becomes part of the description.
   let loop = false;
-  let sawNonFlag = false;
-  for (const tok of argv.slice(1)) {
-    if (!sawNonFlag && tok === '--loop') {
+  const refs: Ref[] = [];
+  let i = 0;
+  while (i < rest.length) {
+    const tok = rest[i];
+    if (tok === '--loop') {
       loop = true;
+      i += 1;
       continue;
     }
-    sawNonFlag = true;
-    rest.push(tok);
+    const issue = parseIssueToken(rest, i);
+    if (issue) {
+      refs.push(issue.ref);
+      i += issue.consumed;
+      continue;
+    }
+    // Free-form description: collect all remaining tokens verbatim.
+    const text = rest.slice(i).join(' ').trim();
+    if (text.length === 0) {
+      throw new ArgsError('Empty free-form description.');
+    }
+    refs.push({ kind: 'freeform', text });
+    break;
   }
 
   if (loop && head !== 'claude') {
@@ -112,26 +132,8 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     );
   }
 
-  if (rest.length === 0) {
+  if (refs.length === 0) {
     throw new ArgsError(`Missing issue reference. Usage: handoff ${head} <ref...>`);
-  }
-
-  const refs: Ref[] = [];
-  let i = 0;
-  while (i < rest.length) {
-    const issue = parseIssueToken(rest, i);
-    if (issue) {
-      refs.push(issue.ref);
-      i += issue.consumed;
-      continue;
-    }
-    // Anything else: collect remaining tokens as a single free-form description.
-    const text = rest.slice(i).join(' ').trim();
-    if (text.length === 0) {
-      throw new ArgsError('Empty free-form description.');
-    }
-    refs.push({ kind: 'freeform', text });
-    break;
   }
 
   return { tool: head, refs, loop };
