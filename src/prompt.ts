@@ -82,7 +82,7 @@ cycle until the PR merges. Follow this sequence:
    - **Triage comments.** Track the latest \`updated_at\` you've already triaged and only
      look at comments newer than that — the REST endpoints below don't expose thread
      resolution state, so re-scanning everything every round will burn cycles re-deciding
-     the same comments. The two relevant feeds:
+     the same comments. The three relevant feeds:
      - Line/review comments: \`gh api repos/{owner}/{repo}/pulls/<n>/comments?since=<iso8601>\`
      - Top-level discussion comments: \`gh api repos/{owner}/{repo}/issues/<n>/comments?since=<iso8601>\`
      - Review summaries (approve / request-changes bodies): \`gh pr view <n> --json reviews\`
