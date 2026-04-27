@@ -83,6 +83,24 @@ handoff codex "tighten error messages in the API client"
 
 No issue lookup. The text is passed as the task description in `PROMPT.md`. The branch becomes `codex/<short-slug>` (slug capped at 20 chars).
 
+### Loop mode (`--loop`, claude only)
+
+```bash
+handoff claude --loop #7
+```
+
+By default the agent stops the moment `gh pr create` returns. With `--loop`, the prompt instructs Claude Code to **stay resident** after the PR is open and self-drive the review cycle:
+
+- Poll the PR (`gh pr view`, `gh pr checks`) on a 60–180s cadence.
+- Triage CI failures and fix them at the source.
+- Triage review comments. **Bot reviewers (Copilot, Codex, github-actions) are default-deny** — the agent reads each comment, decides if there's a real underlying problem, and fixes at the source rather than blindly applying suggested patches.
+- Commit and push fixes per round.
+- Bail with a `[handoff loop] bailing` PR comment if it hits 5 rounds, an unresolvable CI failure, or a merge conflict.
+
+The agent does **not** merge — that's still your call. Once you (or repo automation) merge, it exits and the wrapper cleans up the worktree as usual.
+
+`--loop` is rejected for `codex` and `copilot`: those CLIs run as ephemeral sessions in their own windows and don't have a natural "stay resident and poll" model.
+
 ### Cleanup
 
 If the wrapper missed cleanup (you closed the terminal before merging the PR, you ran `gh` while offline, etc.):

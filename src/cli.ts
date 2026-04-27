@@ -43,10 +43,10 @@ async function main(argv: readonly string[]): Promise<number> {
     return result.status === 'unknown' ? 1 : 0;
   }
 
-  return await runHandoffs(invocation.tool, invocation.refs);
+  return await runHandoffs(invocation.tool, invocation.refs, invocation.loop);
 }
 
-async function runHandoffs(tool: Tool, refs: Ref[]) {
+async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
   const repoRoot = await mainRepoRoot();
   const repo = await repoName();
   const parentBranch = await defaultBranch();
@@ -64,6 +64,7 @@ async function runHandoffs(tool: Tool, refs: Ref[]) {
         parentBranch,
         handoffRoot,
         runnerScript,
+        loop,
       });
       console.log(`[handoff] OK ${describeRef(ref)}`);
     } catch (err) {
@@ -89,6 +90,7 @@ interface SpawnInput {
   parentBranch: string;
   handoffRoot: string;
   runnerScript: string;
+  loop: boolean;
 }
 
 async function spawnHandoff(input: SpawnInput): Promise<void> {
@@ -115,6 +117,7 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
     branch,
     parentBranch: input.parentBranch,
     worktreePath: path,
+    loop: input.loop,
     ...(issue ? { issue } : {}),
     ...(input.ref.kind === 'freeform' ? { freeformDescription: input.ref.text } : {}),
   };

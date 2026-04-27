@@ -4,12 +4,12 @@ import { ArgsError, parseInvocation } from '../src/args.ts';
 describe('parseInvocation', () => {
   it('parses a single #N reference', () => {
     const out = parseInvocation(['claude', '#1']);
-    expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 1 }] });
+    expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 1 }], loop: false });
   });
 
   it('parses "Issue #N" two-token form', () => {
     const out = parseInvocation(['copilot', 'Issue', '#2']);
-    expect(out).toEqual({ tool: 'copilot', refs: [{ kind: 'issue', number: 2 }] });
+    expect(out).toEqual({ tool: 'copilot', refs: [{ kind: 'issue', number: 2 }], loop: false });
   });
 
   it('parses fleet (multiple #N)', () => {
@@ -21,6 +21,7 @@ describe('parseInvocation', () => {
         { kind: 'issue', number: 2 },
         { kind: 'issue', number: 3 },
       ],
+      loop: false,
     });
   });
 
@@ -29,6 +30,69 @@ describe('parseInvocation', () => {
     expect(out).toEqual({
       tool: 'codex',
       refs: [{ kind: 'freeform', text: 'fix login redirect bug' }],
+      loop: false,
+    });
+  });
+
+  it('parses --loop for claude', () => {
+    const out = parseInvocation(['claude', '--loop', '#7']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'issue', number: 7 }],
+      loop: true,
+    });
+  });
+
+  it('parses --loop with a fleet of refs', () => {
+    const out = parseInvocation(['claude', '--loop', '#1', '#2']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [
+        { kind: 'issue', number: 1 },
+        { kind: 'issue', number: 2 },
+      ],
+      loop: true,
+    });
+  });
+
+  it('parses --loop after refs', () => {
+    // Common typo: flag trails the ref. Should still set loop, not create a
+    // phantom freeform handoff with text "--loop".
+    const out = parseInvocation(['claude', '#1', '--loop']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'issue', number: 1 }],
+      loop: true,
+    });
+  });
+
+  it('parses --loop interleaved with refs', () => {
+    const out = parseInvocation(['claude', '#1', '--loop', '#2']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [
+        { kind: 'issue', number: 1 },
+        { kind: 'issue', number: 2 },
+      ],
+      loop: true,
+    });
+  });
+
+  it('rejects --loop for codex', () => {
+    expect(() => parseInvocation(['codex', '--loop', '#1'])).toThrow(/--loop is only supported/);
+  });
+
+  it('rejects --loop for copilot', () => {
+    expect(() => parseInvocation(['copilot', '--loop', '#1'])).toThrow(/--loop is only supported/);
+  });
+
+  it('keeps --loop literal once free-form text has started', () => {
+    // Once a non-flag token appears, later tokens are part of the description verbatim.
+    const out = parseInvocation(['claude', 'fix', '--loop', 'edge', 'case']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'freeform', text: 'fix --loop edge case' }],
+      loop: false,
     });
   });
 
@@ -47,6 +111,22 @@ describe('parseInvocation', () => {
 
   it('rejects tool with no refs', () => {
     expect(() => parseInvocation(['claude'])).toThrow(ArgsError);
+  });
+
+  it('rejects --loop with no refs', () => {
+    // `claude --loop` extracts the flag but leaves zero refs; should still error.
+    expect(() => parseInvocation(['claude', '--loop'])).toThrow(/Missing reference/);
+  });
+
+  it('error message names all ref forms, not just issues', () => {
+    // Free-form is also a valid ref shape; the error shouldn't imply only #N is accepted.
+    try {
+      parseInvocation(['claude']);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ArgsError);
+      expect((err as Error).message).toMatch(/Missing reference/);
+      expect((err as Error).message).not.toMatch(/Missing issue reference/);
+    }
   });
 
   it('rejects cleanup with no branch', () => {

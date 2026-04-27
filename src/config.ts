@@ -5,6 +5,7 @@ export const HELP = `handoff v${VERSION}
 
 USAGE
   handoff <tool> <ref...>          spawn a worktree per ref and launch <tool>
+  handoff claude [--loop] <ref...> claude only: stay resident through review (see FLAGS)
   handoff cleanup <branch>         remove a worktree if its PR has merged
   handoff --help                   show this message
   handoff --version                show version
@@ -19,10 +20,16 @@ REFS
   Issue #N       same as #N
   <free text>    a free-form task description (no issue created)
 
+FLAGS
+  --loop         (claude only) keep the agent resident after \`gh pr create\`
+                 to triage review feedback and CI, push fixes, and iterate
+                 until the PR is merged (or a bail condition trips).
+
 EXAMPLES
   handoff codex #1
   handoff copilot Issue #2
   handoff claude #1 #2 #3                    # fleet: 3 parallel worktrees
+  handoff claude --loop #7                   # implement and self-drive review
   handoff claude "tidy up the README"
 
 REQUIREMENTS

@@ -16,6 +16,7 @@ export type Ref = IssueRef | FreeFormRef;
 export interface ParsedArgs {
   tool: Tool;
   refs: Ref[];
+  loop: boolean;
 }
 
 export interface CleanupArgs {
@@ -91,19 +92,34 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
 
   const rest = argv.slice(1);
   if (rest.length === 0) {
-    throw new ArgsError(`Missing issue reference. Usage: handoff ${head} <ref...>`);
+    throw new ArgsError(
+      `Missing reference. Usage: handoff ${head} <ref...> ` +
+        `(<ref> = #N, "Issue #N", or a free-form task description).`,
+    );
   }
 
+  // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop` is the
+  // flag and may appear anywhere among the issue refs (before, between, after).
+  // The first token that is neither a flag nor an issue-ref pattern flips us
+  // into free-form mode, and from there everything (including a literal
+  // `--loop`) becomes part of the description.
+  let loop = false;
   const refs: Ref[] = [];
   let i = 0;
   while (i < rest.length) {
+    const tok = rest[i];
+    if (tok === '--loop') {
+      loop = true;
+      i += 1;
+      continue;
+    }
     const issue = parseIssueToken(rest, i);
     if (issue) {
       refs.push(issue.ref);
       i += issue.consumed;
       continue;
     }
-    // Anything else: collect remaining tokens as a single free-form description.
+    // Free-form description: collect all remaining tokens verbatim.
     const text = rest.slice(i).join(' ').trim();
     if (text.length === 0) {
       throw new ArgsError('Empty free-form description.');
@@ -112,5 +128,19 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     break;
   }
 
-  return { tool: head, refs };
+  if (loop && head !== 'claude') {
+    throw new ArgsError(
+      `--loop is only supported for the 'claude' tool (got '${head}'). ` +
+        `codex and copilot run as ephemeral sessions and don't support staying resident for review cycles.`,
+    );
+  }
+
+  if (refs.length === 0) {
+    throw new ArgsError(
+      `Missing reference. Usage: handoff ${head} <ref...> ` +
+        `(<ref> = #N, "Issue #N", or a free-form task description).`,
+    );
+  }
+
+  return { tool: head, refs, loop };
 }

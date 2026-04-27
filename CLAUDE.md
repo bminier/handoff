@@ -9,7 +9,7 @@
 | File                         | Responsibility                                                            | Pure? |
 | ---------------------------- | ------------------------------------------------------------------------- | ----- |
 | `src/cli.ts`                 | Entrypoint. Parses argv, fans out to subcommands, isolates per-ref errors | no    |
-| `src/args.ts`                | Argv → `{ tool, refs[] } \| { command: 'cleanup', branch }`               | yes   |
+| `src/args.ts`                | Argv → `{ tool, refs[], loop } \| { command: 'cleanup', branch }`         | yes   |
 | `src/slug.ts`                | Title → kebab-case slug                                                   | yes   |
 | `src/branch.ts`              | Branch + worktree path naming                                             | yes   |
 | `src/prompt.ts`              | `PROMPT.md` template renderer                                             | yes   |
@@ -49,6 +49,8 @@ Tests live in `tests/` and cover the **pure** modules. I/O modules are smoke-tes
 ## How to extend the workflow contract in `PROMPT.md`
 
 Edit the `WORKFLOW_CONTRACT` constant in `src/prompt.ts`. The template is intentionally one big string so it's reviewable as a unit — don't split it into per-tool variants without a strong reason.
+
+There is a second constant, `WORKFLOW_CONTRACT_LOOP`, used when `--loop` is passed (claude only). Keep both as full strings rather than splicing — easier to review the agent's instructions for each mode in one place.
 
 ## Out of scope until later
 
