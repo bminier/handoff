@@ -22,11 +22,16 @@ TARGET_DIR = Path.home() / ".claude" / "commands"
 TARGET_CMD = TARGET_DIR / "handoff.md"
 
 # Surrounding double quotes are part of the sentinel so the substitution only
-# hits the bash `--cwd` argument and never the markdown-backticked prose that
-# explains the placeholder. The replacement uses `shlex.quote`, which adds
-# single quotes only if the path needs them — so a checkout containing `$`,
-# backticks, or whitespace stays inert and a "boring" path stays unquoted.
-PLACEHOLDER = '"${HANDOFF_REPO:-$(pwd)}"'
+# hits the bash arg and never the markdown-backticked prose that explains the
+# placeholder. The replacement uses `shlex.quote`, which adds single quotes
+# only if the path needs them — so a checkout containing `$`, backticks, or
+# whitespace stays inert and a "boring" path stays unquoted.
+#
+# We substitute the absolute path to `src/cli.ts` (not `--cwd`) so the bun
+# process inherits the slash-command cwd. Earlier versions pinned `--cwd` to
+# the handoff checkout, which made `gh issue view` resolve issues against
+# `bminier/handoff` no matter which repo the user invoked `/handoff` from.
+PLACEHOLDER = '"${HANDOFF_CLI:-src/cli.ts}"'
 
 
 def install_command() -> None:
@@ -40,13 +45,13 @@ def install_command() -> None:
             "the install script needs to be updated."
         )
 
-    repo_path = REPO_ROOT.as_posix()
-    rendered = body.replace(PLACEHOLDER, shlex.quote(repo_path))
+    cli_path = (REPO_ROOT / "src" / "cli.ts").as_posix()
+    rendered = body.replace(PLACEHOLDER, shlex.quote(cli_path))
 
     TARGET_DIR.mkdir(parents=True, exist_ok=True)
     TARGET_CMD.write_text(rendered, encoding="utf-8")
     print(f"[install] wrote slash command -> {TARGET_CMD}")
-    print(f"          repo path baked in : {repo_path}")
+    print(f"          cli path baked in  : {cli_path}")
 
 
 def link_bin() -> bool:
