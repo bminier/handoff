@@ -92,7 +92,10 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
 
   const rest = argv.slice(1);
   if (rest.length === 0) {
-    throw new ArgsError(`Missing issue reference. Usage: handoff ${head} <ref...>`);
+    throw new ArgsError(
+      `Missing reference. Usage: handoff ${head} <ref...> ` +
+        `(<ref> = #N, "Issue #N", or a free-form task description).`,
+    );
   }
 
   // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop` is the
@@ -133,7 +136,10 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   }
 
   if (refs.length === 0) {
-    throw new ArgsError(`Missing issue reference. Usage: handoff ${head} <ref...>`);
+    throw new ArgsError(
+      `Missing reference. Usage: handoff ${head} <ref...> ` +
+        `(<ref> = #N, "Issue #N", or a free-form task description).`,
+    );
   }
 
   return { tool: head, refs, loop };

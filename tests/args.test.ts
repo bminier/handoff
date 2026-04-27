@@ -113,6 +113,22 @@ describe('parseInvocation', () => {
     expect(() => parseInvocation(['claude'])).toThrow(ArgsError);
   });
 
+  it('rejects --loop with no refs', () => {
+    // `claude --loop` extracts the flag but leaves zero refs; should still error.
+    expect(() => parseInvocation(['claude', '--loop'])).toThrow(/Missing reference/);
+  });
+
+  it('error message names all ref forms, not just issues', () => {
+    // Free-form is also a valid ref shape; the error shouldn't imply only #N is accepted.
+    try {
+      parseInvocation(['claude']);
+    } catch (err) {
+      expect(err).toBeInstanceOf(ArgsError);
+      expect((err as Error).message).toMatch(/Missing reference/);
+      expect((err as Error).message).not.toMatch(/Missing issue reference/);
+    }
+  });
+
   it('rejects cleanup with no branch', () => {
     expect(() => parseInvocation(['cleanup'])).toThrow(ArgsError);
   });

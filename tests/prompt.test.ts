@@ -110,6 +110,13 @@ describe('renderPrompt', () => {
     expect(out).not.toContain('mergeable: false');
     // Bot reviewers explicitly named.
     expect(out).toContain('Copilot');
+    // Comment-triage instruction must use the `since=` filter (REST endpoints don't
+    // surface thread resolution, so re-scanning everything every poll is wrong).
+    expect(out).toContain('?since=');
+    expect(out).not.toContain('For each unresolved comment');
+    // PR comments don't have titles — the bail marker has to live in the body.
+    expect(out).toContain('first line is');
+    expect(out).not.toContain('titled `[handoff loop] bailing`');
   });
 
   it('handles an empty issue body gracefully', () => {

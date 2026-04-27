@@ -79,9 +79,14 @@ cycle until the PR merges. Follow this sequence:
      wrapper will clean up the worktree.
    - **Triage CI.** If checks failed, read the failing logs (\`gh run view --log-failed\`) and
      fix the underlying issue. Don't paper over a flaky test by retrying — investigate.
-   - **Triage comments.** Fetch new review comments with
-     \`gh api repos/{owner}/{repo}/pulls/<n>/comments\` and \`gh pr view <n> --json reviews\`.
-     For each unresolved comment:
+   - **Triage comments.** Track the latest \`updated_at\` you've already triaged and only
+     look at comments newer than that — the REST endpoints below don't expose thread
+     resolution state, so re-scanning everything every round will burn cycles re-deciding
+     the same comments. The two relevant feeds:
+     - Line/review comments: \`gh api repos/{owner}/{repo}/pulls/<n>/comments?since=<iso8601>\`
+     - Top-level discussion comments: \`gh api repos/{owner}/{repo}/issues/<n>/comments?since=<iso8601>\`
+     - Review summaries (approve / request-changes bodies): \`gh pr view <n> --json reviews\`
+     For each new comment:
      - **Bot reviewers (\`Copilot\`, \`copilot-pull-request-reviewer\`, \`github-actions\`, etc.)
        are default-deny.** Do not apply suggested patches verbatim. Read the comment, decide
        if there is a *real* underlying problem, and if so fix it at the source. If the
@@ -89,6 +94,8 @@ cycle until the PR merges. Follow this sequence:
        leave a brief reply explaining why you're not acting on it and move on.
      - **Human reviewers** get the benefit of the doubt — address their concerns directly,
        but still implement at the source rather than copy-pasting suggestions blindly.
+     - If you genuinely need thread-resolution state (rare), fall back to the GraphQL
+       \`reviewThreads\` connection — REST doesn't surface it.
    - **Commit and push.** New commits per round, conventional style. Do **not** force-push
      unless a reviewer explicitly asked you to rebase.
    - **Re-request review.** If you pushed fixes addressing a specific reviewer, re-request
@@ -106,8 +113,10 @@ cycle until the PR merges. Follow this sequence:
      resolve. (\`mergeable\` is a tri-state enum, not a boolean — don't compare to \`false\`.)
    - Reviewer asks for a change that contradicts the issue spec — surface the conflict, ask
      the user, then exit.
-   When bailing, leave a single comment on the PR titled \`[handoff loop] bailing\` with the
-   reason and what you tried, then exit. Do **not** close the PR.
+   When bailing, leave a single comment on the PR whose first line is
+   \`[handoff loop] bailing\` (PR comments don't have titles — the marker has to live in
+   the body so it's searchable). Below that, give the reason and what you tried, then
+   exit. Do **not** close the PR.
 
 **You do not merge the PR.** The human or repo automation merges. Your job is to keep the
 branch in a mergeable state and respond to feedback. Once the merge happens, the cleanup
