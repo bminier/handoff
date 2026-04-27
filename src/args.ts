@@ -16,6 +16,7 @@ export type Ref = IssueRef | FreeFormRef;
 export interface ParsedArgs {
   tool: Tool;
   refs: Ref[];
+  loop: boolean;
 }
 
 export interface CleanupArgs {
@@ -89,7 +90,28 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     );
   }
 
-  const rest = argv.slice(1);
+  // Pull out flags before ref parsing so they can appear anywhere after the tool.
+  // Stop flag-extraction at the first non-flag token so flag-looking free-form
+  // text (rare) still parses as the start of a description.
+  const rest: string[] = [];
+  let loop = false;
+  let sawNonFlag = false;
+  for (const tok of argv.slice(1)) {
+    if (!sawNonFlag && tok === '--loop') {
+      loop = true;
+      continue;
+    }
+    sawNonFlag = true;
+    rest.push(tok);
+  }
+
+  if (loop && head !== 'claude') {
+    throw new ArgsError(
+      `--loop is only supported for the 'claude' tool (got '${head}'). ` +
+        `codex and copilot run as ephemeral sessions and don't support staying resident for review cycles.`,
+    );
+  }
+
   if (rest.length === 0) {
     throw new ArgsError(`Missing issue reference. Usage: handoff ${head} <ref...>`);
   }
@@ -112,5 +134,5 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     break;
   }
 
-  return { tool: head, refs };
+  return { tool: head, refs, loop };
 }
