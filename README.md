@@ -42,10 +42,10 @@ python scripts/install.py
 
 This:
 
-1. Renders `.claude/commands/handoff.md` into `~/.claude/commands/handoff.md` with this checkout's absolute path baked in, so `/handoff` works in any Claude Code session started after install.
+1. Renders `.claude/commands/handoff.md` into `~/.claude/commands/handoff.md` with the absolute path to this checkout's `src/cli.ts` baked in, so `/handoff` works in any Claude Code session started after install. The slash command leaves the bun cwd alone so `gh issue view` resolves against the _caller's_ repo, not the handoff checkout.
 2. Runs `bun link` so the `handoff` CLI is on your PATH.
 
-Pass `--no-link` to skip the CLI link and install only the slash command. Re-run after moving the checkout.
+Pass `--no-link` to skip the CLI link and install only the slash command. Re-run after moving the checkout — and re-run if you installed before this `cli.ts`-path layout, since older installs pinned `--cwd` to the handoff repo and resolved issues against the wrong remote.
 
 > **Restart Claude Code after installing.** Slash commands under `~/.claude/commands/` are read at session start, so any sessions that were already open won't see `/handoff` until they're restarted.
 
