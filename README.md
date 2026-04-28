@@ -124,6 +124,7 @@ src/
 ├── git.ts        — git worktree wrappers
 ├── terminal.ts   — cross-platform window spawn
 ├── cleanup.ts    — PR-merged check + worktree teardown
+├── workspace.ts  — .handoff/state.json read/write
 ├── config.ts     — VERSION, HELP
 └── run.ts        — typed spawn helper
 scripts/
@@ -133,6 +134,19 @@ scripts/
 ```
 
 A handoff is one PR. Cleanup is conditional on `gh pr list --head <branch> --state merged` returning a result; nothing else will trigger worktree removal.
+
+### The `.handoff/` workspace directory
+
+Every handoff worktree carries a small metadata directory at its root:
+
+```
+<worktree-root>/
+  PROMPT.md          # initial prompt for the agent
+  .handoff/
+    state.json       # tool, ref, branch, loop, timestamps
+```
+
+It's session metadata, not source — **add `.handoff/` to your repo's `.gitignore`**. The directory is removed along with the worktree when the PR merges. Future features (pre-commit reviews, container metadata, `--resume` state) will live under the same prefix.
 
 ## Configuration
 

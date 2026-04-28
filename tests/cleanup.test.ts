@@ -1,4 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import * as realFsNs from 'node:fs';
+
+// Capture a plain-object snapshot of node:fs *before* mock.module runs.
+// Bun's mock.module is process-global and mutates the same namespace, so a
+// live `realFsNs.existsSync` reference inside the factory would recurse into
+// the mock itself.
+const realFs = { ...realFsNs };
 
 let mergedReturn: boolean | Error = false;
 let branchExistsReturn = true;
@@ -13,8 +20,17 @@ const calls = {
   deleteBranch: [] as string[],
 };
 
+// Bun's mock.module is process-global, so this overrides node:fs for every
+// other test file too. Pass non-fs exports through, and for existsSync only
+// stub paths under the synthetic "/work/" repoRoot the cleanup tests use —
+// real OS paths (workspace.test.ts uses tmpdir) fall through.
 mock.module('node:fs', () => ({
-  existsSync: (_p: string) => worktreeOnDisk,
+  ...realFs,
+  existsSync: (p: string) => {
+    const norm = String(p).replace(/\\/g, '/');
+    if (norm.startsWith('/work/')) return worktreeOnDisk;
+    return realFs.existsSync(p);
+  },
 }));
 
 mock.module('../src/github.ts', () => ({
