@@ -72,11 +72,16 @@ export function parseConfig(raw: unknown): TelemetryConfig {
     r.telemetry && typeof r.telemetry === 'object'
       ? (r.telemetry as { enabled?: unknown; endpoint?: unknown; lastSentAt?: unknown })
       : {};
+  // Whitespace-only endpoints would fail at send time and silently drop
+  // every event — coerce to null so `status` is honest and the no-endpoint
+  // short-circuit in `emit` kicks in.
+  const trimmedEndpoint =
+    typeof t.endpoint === 'string' && t.endpoint.trim().length > 0 ? t.endpoint.trim() : null;
   return {
     version: CONFIG_VERSION,
     telemetry: {
       enabled: t.enabled === true,
-      endpoint: typeof t.endpoint === 'string' && t.endpoint.length > 0 ? t.endpoint : null,
+      endpoint: trimmedEndpoint,
       lastSentAt: typeof t.lastSentAt === 'string' ? t.lastSentAt : null,
     },
     firstRunBannerSeen: r.firstRunBannerSeen === true,
@@ -249,19 +254,23 @@ export async function emit(event: Event, opts: EmitOptions = {}): Promise<void> 
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    await fetchImpl(endpoint, {
+    const res = await fetchImpl(endpoint, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(event),
       signal: controller.signal,
     });
-    // Best-effort lastSent stamp; failure is fine.
-    try {
-      const fresh = loadConfig({ home });
-      fresh.telemetry.lastSentAt = now();
-      saveConfig(fresh, { home });
-    } catch {
-      /* noop */
+    // Only stamp lastSentAt on a 2xx. fetch resolves on 4xx/5xx too; an
+    // endpoint rejecting our event is a dropped delivery, same as a network
+    // error from the user's perspective.
+    if (res.ok) {
+      try {
+        const fresh = loadConfig({ home });
+        fresh.telemetry.lastSentAt = now();
+        saveConfig(fresh, { home });
+      } catch {
+        /* noop */
+      }
     }
   } catch {
     // Drop silently — the contract says we never block or surface transport
@@ -336,7 +345,8 @@ export function setEnabled(
   const config = loadConfig({ home });
   config.telemetry.enabled = enabled;
   if ('endpoint' in patch && patch.endpoint !== undefined) {
-    config.telemetry.endpoint = patch.endpoint;
+    const trimmed = patch.endpoint === null ? null : patch.endpoint.trim();
+    config.telemetry.endpoint = trimmed && trimmed.length > 0 ? trimmed : null;
   }
   saveConfig(config, { home });
   return config;

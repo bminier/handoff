@@ -82,6 +82,22 @@ describe('parseConfig schema-version guard', () => {
     expect(out.firstRunBannerSeen).toBe(true);
   });
 
+  it('coerces whitespace-only endpoint to null and trims surrounding whitespace', () => {
+    const blank = parseConfig({
+      version: CONFIG_VERSION,
+      telemetry: { enabled: true, endpoint: '   ' },
+      firstRunBannerSeen: false,
+    });
+    expect(blank.telemetry.endpoint).toBeNull();
+
+    const padded = parseConfig({
+      version: CONFIG_VERSION,
+      telemetry: { enabled: true, endpoint: '  https://x.test/t  ' },
+      firstRunBannerSeen: false,
+    });
+    expect(padded.telemetry.endpoint).toBe('https://x.test/t');
+  });
+
   it('treats truthy non-boolean enabled as disabled', () => {
     const out = parseConfig({
       version: CONFIG_VERSION,
@@ -292,6 +308,25 @@ describe('emit — opt-in default-off invariant', () => {
     const fresh = loadConfig({ home });
     expect(fresh.telemetry.lastSentAt).toBe('2026-04-28T15:00:00.000Z');
   });
+
+  it('does NOT update lastSentAt when the endpoint returns 4xx/5xx', async () => {
+    // fetch resolves on 500s — only `res.ok` distinguishes a real send from
+    // a server reject. Stamping lastSentAt on a 500 would lie to the user.
+    saveConfig(
+      {
+        ...defaultConfig(),
+        telemetry: { enabled: true, endpoint: 'https://example.test/t', lastSentAt: null },
+      },
+      { home },
+    );
+    const fetchImpl = (async () =>
+      new Response('boom', { status: 500 })) as unknown as typeof fetch;
+    await emit(
+      eventStart({ tool: 'claude', refType: 'issue', fleet: 1, loop: false, sessionId: 'x' }),
+      { home, fetchImpl, now: () => '2026-04-28T15:00:00.000Z' },
+    );
+    expect(loadConfig({ home }).telemetry.lastSentAt).toBeNull();
+  });
 });
 
 describe('emit — debug log', () => {
@@ -348,6 +383,14 @@ describe('setEnabled / markBannerSeen', () => {
     const c = setEnabled(false, {}, { home });
     expect(c.telemetry.enabled).toBe(false);
     expect(c.telemetry.endpoint).toBe('https://example.test/x');
+  });
+
+  it('trims whitespace from the endpoint and rejects whitespace-only input', () => {
+    const padded = setEnabled(true, { endpoint: '  https://x.test/t  ' }, { home });
+    expect(padded.telemetry.endpoint).toBe('https://x.test/t');
+
+    const blank = setEnabled(true, { endpoint: '   ' }, { home });
+    expect(blank.telemetry.endpoint).toBeNull();
   });
 
   it('markBannerSeen persists the flag', () => {
