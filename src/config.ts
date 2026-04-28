@@ -37,7 +37,7 @@ TELEMETRY
   handoff telemetry disable                     turn off
   handoff telemetry status                      show current state and event
                                                 shapes
-  handoff telemetry log                         tail the local debug log (set
+  handoff telemetry log                         print the local debug log (set
                                                 HANDOFF_TELEMETRY_DEBUG=1 to
                                                 populate it)
 

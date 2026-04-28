@@ -27,6 +27,8 @@ import {
   newSessionId,
   readDebugLog,
   setEnabled,
+  TelemetryConfigError,
+  configPath,
   type CleanupOutcome,
 } from './telemetry.ts';
 
@@ -106,6 +108,21 @@ function safeReadState(path: string) {
 }
 
 async function runTelemetry(invocation: TelemetryArgs): Promise<number> {
+  try {
+    return await runTelemetryInner(invocation);
+  } catch (err) {
+    if (err instanceof TelemetryConfigError) {
+      console.error(`error: ${err.message}`);
+      console.error(
+        `       If the file is corrupt, remove ${configPath()} and re-run this command.`,
+      );
+      return 1;
+    }
+    throw err;
+  }
+}
+
+async function runTelemetryInner(invocation: TelemetryArgs): Promise<number> {
   switch (invocation.sub) {
     case 'enable': {
       const patch = invocation.endpoint === undefined ? {} : { endpoint: invocation.endpoint };
@@ -318,5 +335,8 @@ function emitFireAndForget(...args: Parameters<typeof emit>): void {
   void emit(...args).catch(() => {});
 }
 
-const code = await main(process.argv.slice(2));
-process.exit(code);
+// Use process.exitCode (not process.exit) so any in-flight `emit` fetches get
+// a chance to drain — they're already bounded by AbortController(EMIT_TIMEOUT_MS),
+// so the worst-case extra wall time is one timeout window. process.exit would
+// abort them immediately, which silently lost telemetry for users who'd opted in.
+process.exitCode = await main(process.argv.slice(2));
