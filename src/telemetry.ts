@@ -215,14 +215,19 @@ export interface EmitOptions extends IoOptions {
 }
 
 /**
- * Async fire-and-forget. Resolves once we've decided what to do with the event;
- * the network round-trip is detached and allowed to fail silently.
+ * Attempts to deliver one event. Resolves when the send attempt has finished,
+ * been aborted by the timeout, or been short-circuited by config. Never
+ * rejects — transport errors are swallowed.
+ *
+ * Detachment from the CLI is the *caller's* job: `cli.ts` invokes this via
+ * `emitFireAndForget`, which discards the returned promise so a slow endpoint
+ * doesn't gate the user-visible work.
  *
  * - Always writes a debug log line if `HANDOFF_TELEMETRY_DEBUG=1` (or the
  *   `debug` opt is true), even if telemetry is disabled — so the user can
  *   audit exactly what *would* be sent before flipping the switch.
  * - Sends to the endpoint only when both `enabled` and `endpoint` are set.
- * - Drops silently on transport failure or timeout.
+ * - Drops silently on transport failure, non-2xx, or timeout.
  */
 export async function emit(event: Event, opts: EmitOptions = {}): Promise<void> {
   const home = opts.home ?? homedir();

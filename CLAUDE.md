@@ -89,7 +89,7 @@ Rules:
 
 - **Off by default.** `handoff telemetry enable [--endpoint <url>]` flips the switch; nothing is sent until both `enabled === true` and `endpoint !== null`.
 - **No PII.** Event constructors (`eventStart`, `eventCleanup`, `eventError`) take typed input — issue titles, branch names, repo paths, and usernames have nowhere to land in their argument types. Tests assert the keyset of each payload; do not add fields without updating those tests and the README table.
-- **Fire-and-forget.** `emit` is async with a 1s timeout. The CLI calls it via `emitFireAndForget` and never awaits — process.exit happens, the fetch is killed, and that is fine. Transport failures are dropped silently.
+- **Fire-and-forget.** `emit` is async with a 1s `AbortController` timeout. The CLI calls it via `emitFireAndForget`, which discards the returned promise so the user-visible work doesn't wait on a slow endpoint. The CLI sets `process.exitCode` (rather than calling `process.exit`) so any in-flight emits get a bounded chance to drain before the process exits naturally. Don't reintroduce `process.exit(code)` at the bottom of `cli.ts` — it silently drops the last event of every command for opted-in users. Transport failures, non-2xx responses, and timeouts are all dropped silently.
 - **Debug log.** When `HANDOFF_TELEMETRY_DEBUG=1`, every event is appended to `~/.handoff/telemetry-debug.log` _whether or not telemetry is enabled_. This is the audit trail the user is promised.
 - **Config file.** `~/.handoff/config.json` (separate from the per-worktree `.handoff/state.json`). Bump `CONFIG_VERSION` if the schema changes; `parseConfig` rejects unknown versions for the same reason `workspace.ts` does.
 
