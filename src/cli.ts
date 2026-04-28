@@ -13,6 +13,7 @@ import { renderPrompt } from './prompt.ts';
 import { slugify } from './slug.ts';
 import { openTerminal } from './terminal.ts';
 import { HELP, VERSION } from './config.ts';
+import { STATE_VERSION, writeState, type RefRecord } from './workspace.ts';
 
 async function main(argv: readonly string[]): Promise<number> {
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
@@ -124,6 +125,17 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
   const promptBody = renderPrompt(promptCtx);
   writeFileSync(join(path, 'PROMPT.md'), promptBody, 'utf8');
 
+  const now = new Date().toISOString();
+  writeState(path, {
+    version: STATE_VERSION,
+    tool: input.tool,
+    ref: refRecord(input.ref, issue),
+    branch,
+    loop: input.loop,
+    createdAt: now,
+    updatedAt: now,
+  });
+
   await openTerminal({
     cwd: path,
     scriptPath: input.runnerScript,
@@ -151,6 +163,13 @@ function resolveRunnerScript(handoffRoot: string): string {
 
 function describeRef(ref: Ref): string {
   return ref.kind === 'issue' ? `#${ref.number}` : `"${ref.text.slice(0, 40)}"`;
+}
+
+function refRecord(ref: Ref, issue: IssueDetails | undefined): RefRecord {
+  if (ref.kind === 'issue') {
+    return { type: 'issue', number: issue?.number ?? ref.number };
+  }
+  return { type: 'freeform', text: ref.text };
 }
 
 const code = await main(process.argv.slice(2));
