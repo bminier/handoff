@@ -19,6 +19,7 @@
 | `src/cleanup.ts`             | PR-merged check → remove worktree + branch                                | I/O   |
 | `src/run.ts`                 | `spawn` wrapper with structured errors                                    | I/O   |
 | `src/workspace.ts`           | `.handoff/state.json` read/write + schema-version guard                   | I/O   |
+| `src/telemetry.ts`           | `~/.handoff/config.json`, event constructors, fire-and-forget emit        | mixed |
 | `src/config.ts`              | `VERSION`, `HELP`                                                         | yes   |
 | `scripts/handoff-runner.sh`  | Bash wrapper: run tool, then `bun … cli.ts cleanup <branch>`              | shell |
 | `scripts/handoff-runner.ps1` | PowerShell equivalent for Windows                                         | shell |
@@ -81,6 +82,23 @@ Rules:
 - `.handoff/` is _gitignored at the user-repo level_ (the README tells users to add it to their `.gitignore`). It is removed with the worktree on cleanup.
 - Bump `STATE_VERSION` in `src/workspace.ts` when you change the schema. The reader rejects unknown versions rather than silently mis-parsing.
 - Future features should add files under `.handoff/` (e.g. `REVIEW.md` for #11, `container/` for #25) rather than scattering them across the worktree.
+
+## Telemetry
+
+`src/telemetry.ts` owns opt-in usage stats. The contract is:
+
+- **Off by default.** `handoff telemetry enable [--endpoint <url>]` flips the switch; nothing is sent until both `enabled === true` and `endpoint !== null`.
+- **No PII.** Event constructors (`eventStart`, `eventCleanup`, `eventError`) take typed input — issue titles, branch names, repo paths, and usernames have nowhere to land in their argument types. Tests assert the keyset of each payload; do not add fields without updating those tests and the README table.
+- **Fire-and-forget.** `emit` is async with a 1s timeout. The CLI calls it via `emitFireAndForget` and never awaits — process.exit happens, the fetch is killed, and that is fine. Transport failures are dropped silently.
+- **Debug log.** When `HANDOFF_TELEMETRY_DEBUG=1`, every event is appended to `~/.handoff/telemetry-debug.log` _whether or not telemetry is enabled_. This is the audit trail the user is promised.
+- **Config file.** `~/.handoff/config.json` (separate from the per-worktree `.handoff/state.json`). Bump `CONFIG_VERSION` if the schema changes; `parseConfig` rejects unknown versions for the same reason `workspace.ts` does.
+
+When you add a new event:
+
+1. Add a typed constructor in `src/telemetry.ts`.
+2. Add it to the `Event` union and to the `ALLOWED_KEYS` test table.
+3. Document it in the README's `## Telemetry` table.
+4. Wire `emitFireAndForget(...)` from the right call site in `src/cli.ts`.
 
 ## How to extend the workflow contract in `PROMPT.md`
 

@@ -125,6 +125,7 @@ src/
 ├── terminal.ts   — cross-platform window spawn
 ├── cleanup.ts    — PR-merged check + worktree teardown
 ├── workspace.ts  — .handoff/state.json read/write
+├── telemetry.ts  — opt-in usage stats (off by default)
 ├── config.ts     — VERSION, HELP
 └── run.ts        — typed spawn helper
 scripts/
@@ -151,6 +152,31 @@ It's session metadata, not source — **add `.handoff/` to your repo's `.gitigno
 ## Configuration
 
 None required. Future versions will support `.handoffrc.json` overrides for `defaultBranch`, `worktreeDir`, `terminalCommand`, and `promptTemplate`.
+
+## Telemetry
+
+`handoff` ships with opt-in usage telemetry. **It is off by default and stays off until you flip a switch.** Nothing is sent over the network unless you both (a) enable telemetry and (b) point it at an endpoint URL.
+
+```bash
+handoff telemetry status                                # show current state + event shapes
+handoff telemetry enable --endpoint https://you.test/t  # turn on, point at your aggregator
+handoff telemetry disable                               # turn off
+handoff telemetry log                                   # tail the local debug log
+```
+
+What we collect (and only this — by construction):
+
+| Event             | Payload                                     |
+| ----------------- | ------------------------------------------- |
+| `handoff.start`   | `{ tool, refType, fleet, loop, sessionId }` |
+| `handoff.cleanup` | `{ tool, outcome, durationMs }`             |
+| `handoff.error`   | `{ code, module, exitCode }`                |
+
+`refType` is `issue` or `freeform`; `outcome` is `merged` / `retained` / `failed`; `sessionId` is a per-handoff random UUID. There is **no PII**: no issue titles, branch names, repo paths, or usernames are ever transmitted. Event delivery is async fire-and-forget with a 1s timeout — a slow or down endpoint never blocks the CLI, and failures are dropped silently.
+
+Trust through transparency: set `HANDOFF_TELEMETRY_DEBUG=1` in your environment to capture every event you would have sent to `~/.handoff/telemetry-debug.log`. The log is written **whether or not telemetry is enabled**, so you can audit what the tool would send before turning it on. `handoff telemetry log` tails the file.
+
+Configuration lives at `~/.handoff/config.json`.
 
 ## Development
 

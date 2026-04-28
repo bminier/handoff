@@ -7,6 +7,7 @@ USAGE
   handoff <tool> <ref...>          spawn a worktree per ref and launch <tool>
   handoff claude [--loop] <ref...> claude only: stay resident through review (see FLAGS)
   handoff cleanup <branch>         remove a worktree if its PR has merged
+  handoff telemetry <subcommand>   manage opt-in usage telemetry (see TELEMETRY)
   handoff --help                   show this message
   handoff --version                show version
 
@@ -24,6 +25,21 @@ FLAGS
   --loop         (claude only) keep the agent resident after \`gh pr create\`
                  to triage review feedback and CI, push fixes, and iterate
                  until the PR is merged (or a bail condition trips).
+
+TELEMETRY
+  Off by default. Nothing is sent until both telemetry is enabled and an
+  endpoint URL is configured. No PII (no issue titles, branch names, repo
+  paths, or usernames) is ever transmitted; see \`handoff telemetry status\`
+  for the exact event payloads.
+
+  handoff telemetry enable [--endpoint <url>]   turn on, optionally pointing
+                                                at a self-hosted aggregator
+  handoff telemetry disable                     turn off
+  handoff telemetry status                      show current state and event
+                                                shapes
+  handoff telemetry log                         tail the local debug log (set
+                                                HANDOFF_TELEMETRY_DEBUG=1 to
+                                                populate it)
 
 EXAMPLES
   handoff codex #1

@@ -4,16 +4,31 @@ import { dirname, join, resolve } from 'node:path';
 import { platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { ArgsError, parseInvocation, type Ref, type Tool } from './args.ts';
+import { ArgsError, parseInvocation, type Ref, type Tool, type TelemetryArgs } from './args.ts';
 import { branchName, worktreePath } from './branch.ts';
-import { cleanup } from './cleanup.ts';
+import { cleanup, type CleanupResult } from './cleanup.ts';
 import { createWorktree, mainRepoRoot, repoName } from './git.ts';
 import { defaultBranch, fetchIssue, type IssueDetails } from './github.ts';
 import { renderPrompt } from './prompt.ts';
 import { slugify } from './slug.ts';
 import { openTerminal } from './terminal.ts';
 import { HELP, VERSION } from './config.ts';
-import { STATE_VERSION, writeState, type RefRecord } from './workspace.ts';
+import { readState, STATE_VERSION, writeState, type RefRecord } from './workspace.ts';
+import {
+  bannerText,
+  buildStatusReport,
+  emit,
+  eventCleanup,
+  eventError,
+  eventStart,
+  formatStatusReport,
+  loadConfig,
+  markBannerSeen,
+  newSessionId,
+  readDebugLog,
+  setEnabled,
+  type CleanupOutcome,
+} from './telemetry.ts';
 
 async function main(argv: readonly string[]): Promise<number> {
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
@@ -38,13 +53,113 @@ async function main(argv: readonly string[]): Promise<number> {
   }
 
   if ('command' in invocation) {
-    const repoRoot = await mainRepoRoot();
-    const result = await cleanup(invocation.branch, { repoRoot });
-    console.log(result.message);
-    return result.status === 'unknown' ? 1 : 0;
+    if (invocation.command === 'telemetry') {
+      return await runTelemetry(invocation);
+    }
+    showFirstRunBanner();
+    return await runCleanup(invocation.branch);
   }
 
+  showFirstRunBanner();
   return await runHandoffs(invocation.tool, invocation.refs, invocation.loop);
+}
+
+async function runCleanup(branch: string): Promise<number> {
+  const repoRoot = await mainRepoRoot();
+  const path = worktreePath({ repoRoot, branch });
+  const state = safeReadState(path);
+  const startedAt = state?.createdAt ? Date.parse(state.createdAt) : NaN;
+
+  const t0 = Date.now();
+  const result = await cleanup(branch, { repoRoot });
+  console.log(result.message);
+
+  const durationMs = Number.isFinite(startedAt) ? Date.now() - startedAt : Date.now() - t0;
+  emitFireAndForget(
+    eventCleanup({
+      tool: state?.tool ?? 'unknown',
+      outcome: cleanupOutcome(result),
+      durationMs,
+    }),
+  );
+
+  return result.status === 'unknown' ? 1 : 0;
+}
+
+function cleanupOutcome(result: CleanupResult): CleanupOutcome {
+  switch (result.status) {
+    case 'removed':
+      return 'merged';
+    case 'retained':
+      return 'retained';
+    case 'unknown':
+      return 'failed';
+  }
+}
+
+function safeReadState(path: string) {
+  try {
+    return readState(path);
+  } catch {
+    return null;
+  }
+}
+
+async function runTelemetry(invocation: TelemetryArgs): Promise<number> {
+  switch (invocation.sub) {
+    case 'enable': {
+      const patch = invocation.endpoint === undefined ? {} : { endpoint: invocation.endpoint };
+      const config = setEnabled(true, patch);
+      console.log('telemetry: enabled');
+      console.log(
+        `endpoint:  ${config.telemetry.endpoint ?? '(none — set with --endpoint <url>)'}`,
+      );
+      if (!config.telemetry.endpoint) {
+        console.log(
+          'note:      no endpoint configured, so events will be logged for debug only ' +
+            '(set HANDOFF_TELEMETRY_DEBUG=1) until an endpoint is set.',
+        );
+      }
+      return 0;
+    }
+    case 'disable': {
+      setEnabled(false);
+      console.log('telemetry: disabled');
+      return 0;
+    }
+    case 'status': {
+      console.log(formatStatusReport(buildStatusReport()));
+      return 0;
+    }
+    case 'log': {
+      const body = readDebugLog();
+      if (body.length === 0) {
+        console.log(
+          '(no telemetry debug log entries yet — set HANDOFF_TELEMETRY_DEBUG=1 ' +
+            'in your environment to start capturing events to disk).',
+        );
+        return 0;
+      }
+      process.stdout.write(body);
+      return 0;
+    }
+  }
+}
+
+function showFirstRunBanner(): void {
+  let config;
+  try {
+    config = loadConfig();
+  } catch {
+    return;
+  }
+  if (config.firstRunBannerSeen) return;
+  console.error(bannerText());
+  try {
+    markBannerSeen();
+  } catch {
+    /* if we can't persist the flag, just don't crash; we'll show the banner again next time. */
+  }
 }
 
 async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
@@ -66,12 +181,16 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
         handoffRoot,
         runnerScript,
         loop,
+        fleet: refs.length,
       });
       console.log(`[handoff] OK ${describeRef(ref)}`);
     } catch (err) {
       failures += 1;
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[handoff] FAILED for ${describeRef(ref)}: ${msg}`);
+      emitFireAndForget(
+        eventError({ code: errorCode(err), module: 'cli.spawnHandoff', exitCode: 1 }),
+      );
     }
   }
   if (refs.length > 1) {
@@ -92,6 +211,7 @@ interface SpawnInput {
   handoffRoot: string;
   runnerScript: string;
   loop: boolean;
+  fleet: number;
 }
 
 async function spawnHandoff(input: SpawnInput): Promise<void> {
@@ -142,6 +262,16 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
     args: [input.handoffRoot, input.tool, branch],
   });
   console.log(`[handoff] terminal launched for ${branch}`);
+
+  emitFireAndForget(
+    eventStart({
+      tool: input.tool,
+      refType: input.ref.kind === 'issue' ? 'issue' : 'freeform',
+      fleet: input.fleet,
+      loop: input.loop,
+      sessionId: newSessionId(),
+    }),
+  );
 }
 
 function resolveHandoffRoot(): string {
@@ -170,6 +300,22 @@ function refRecord(ref: Ref, issue: IssueDetails | undefined): RefRecord {
     return { type: 'issue', number: issue?.number ?? ref.number };
   }
   return { type: 'freeform', text: ref.text };
+}
+
+function errorCode(err: unknown): string {
+  if (err && typeof err === 'object' && 'name' in err && typeof err.name === 'string') {
+    return err.name;
+  }
+  return 'Error';
+}
+
+/**
+ * Detach the network round-trip from the CLI's promise chain so a slow or
+ * misconfigured endpoint never blocks the user. Errors are dropped — the
+ * debug log (if enabled) is the audit trail.
+ */
+function emitFireAndForget(...args: Parameters<typeof emit>): void {
+  void emit(...args).catch(() => {});
 }
 
 const code = await main(process.argv.slice(2));

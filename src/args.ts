@@ -24,7 +24,16 @@ export interface CleanupArgs {
   branch: string;
 }
 
-export type CliInvocation = ParsedArgs | CleanupArgs;
+export const TELEMETRY_SUBCOMMANDS = ['enable', 'disable', 'status', 'log'] as const;
+export type TelemetrySubcommand = (typeof TELEMETRY_SUBCOMMANDS)[number];
+
+export type TelemetryArgs =
+  | { command: 'telemetry'; sub: 'enable'; endpoint?: string }
+  | { command: 'telemetry'; sub: 'disable' }
+  | { command: 'telemetry'; sub: 'status' }
+  | { command: 'telemetry'; sub: 'log' };
+
+export type CliInvocation = ParsedArgs | CleanupArgs | TelemetryArgs;
 
 export class ArgsError extends Error {
   constructor(message: string) {
@@ -84,9 +93,13 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     return { command: 'cleanup', branch };
   }
 
+  if (head === 'telemetry') {
+    return parseTelemetry(argv.slice(1));
+  }
+
   if (!isTool(head)) {
     throw new ArgsError(
-      `Unknown tool '${head}'. Expected one of: ${TOOLS.join(', ')}, or 'cleanup'.`,
+      `Unknown tool '${head}'. Expected one of: ${TOOLS.join(', ')}, 'cleanup', or 'telemetry'.`,
     );
   }
 
@@ -143,4 +156,60 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   }
 
   return { tool: head, refs, loop };
+}
+
+function isTelemetrySubcommand(value: string): value is TelemetrySubcommand {
+  return (TELEMETRY_SUBCOMMANDS as readonly string[]).includes(value);
+}
+
+function parseTelemetry(rest: readonly string[]): TelemetryArgs {
+  const sub = rest[0];
+  if (sub === undefined || sub.trim() === '') {
+    throw new ArgsError(
+      `Usage: handoff telemetry <${TELEMETRY_SUBCOMMANDS.join('|')}> [--endpoint <url>]`,
+    );
+  }
+  if (!isTelemetrySubcommand(sub)) {
+    throw new ArgsError(
+      `Unknown telemetry subcommand '${sub}'. Expected one of: ${TELEMETRY_SUBCOMMANDS.join(', ')}.`,
+    );
+  }
+
+  if (sub === 'enable') {
+    let endpoint: string | undefined;
+    let i = 1;
+    while (i < rest.length) {
+      const tok = rest[i];
+      if (tok === '--endpoint') {
+        const value = rest[i + 1];
+        if (value === undefined || value.trim() === '') {
+          throw new ArgsError('--endpoint requires a URL argument.');
+        }
+        endpoint = value;
+        i += 2;
+        continue;
+      }
+      if (tok !== undefined && tok.startsWith('--endpoint=')) {
+        const value = tok.slice('--endpoint='.length);
+        if (value.trim() === '') {
+          throw new ArgsError('--endpoint requires a URL argument.');
+        }
+        endpoint = value;
+        i += 1;
+        continue;
+      }
+      throw new ArgsError(
+        `Unexpected argument '${tok}' to 'handoff telemetry enable'. ` +
+          `Only '--endpoint <url>' is supported.`,
+      );
+    }
+    return endpoint === undefined
+      ? { command: 'telemetry', sub: 'enable' }
+      : { command: 'telemetry', sub: 'enable', endpoint };
+  }
+
+  if (rest.length > 1) {
+    throw new ArgsError(`'handoff telemetry ${sub}' takes no arguments.`);
+  }
+  return { command: 'telemetry', sub };
 }
