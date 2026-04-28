@@ -65,8 +65,9 @@ Every worktree carries a small per-session metadata directory at its root:
   "version": 1,
   "tool": "claude" | "codex" | "copilot",
   "ref": { "type": "issue", "number": 7 } |
-         { "type": "pr",    "number": 12 } |
          { "type": "freeform", "text": "..." },
+  // A `{ "type": "pr", "number": 12 }` variant will be added when #10 lands
+  // first-class PR handoffs end-to-end.
   "branch": "claude/issue-7",
   "loop": false,
   "createdAt": "2026-04-28T12:00:00.000Z",

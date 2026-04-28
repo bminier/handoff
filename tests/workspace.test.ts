@@ -7,7 +7,7 @@ import {
   STATE_VERSION,
   WORKSPACE_DIRNAME,
   WorkspaceStateError,
-  clearState,
+  removeWorkspace,
   readState,
   statePath,
   workspacePath,
@@ -91,16 +91,25 @@ describe('readState schema-version guard', () => {
   });
 });
 
-describe('clearState', () => {
+describe('removeWorkspace', () => {
   it('removes the .handoff/ directory entirely', () => {
     writeState(root, sample());
     expect(existsSync(workspacePath(root))).toBe(true);
 
-    clearState(root);
+    removeWorkspace(root);
     expect(existsSync(workspacePath(root))).toBe(false);
   });
 
   it('is a no-op when .handoff/ does not exist', () => {
-    expect(() => clearState(root)).not.toThrow();
+    expect(() => removeWorkspace(root)).not.toThrow();
+  });
+});
+
+describe('readState corrupted-file handling', () => {
+  it('wraps JSON parse errors in WorkspaceStateError', () => {
+    writeState(root, sample());
+    writeFileSync(statePath(root), '{not valid json', 'utf8');
+
+    expect(() => readState(root)).toThrow(WorkspaceStateError);
   });
 });
