@@ -132,4 +132,70 @@ describe('parseInvocation', () => {
   it('rejects cleanup with no branch', () => {
     expect(() => parseInvocation(['cleanup'])).toThrow(ArgsError);
   });
+
+  describe('telemetry subcommand', () => {
+    it('parses enable with no endpoint', () => {
+      expect(parseInvocation(['telemetry', 'enable'])).toEqual({
+        command: 'telemetry',
+        sub: 'enable',
+      });
+    });
+
+    it('parses enable --endpoint <url> (two-token form)', () => {
+      expect(parseInvocation(['telemetry', 'enable', '--endpoint', 'https://x.test/t'])).toEqual({
+        command: 'telemetry',
+        sub: 'enable',
+        endpoint: 'https://x.test/t',
+      });
+    });
+
+    it('parses enable --endpoint=<url> (single-token form)', () => {
+      expect(parseInvocation(['telemetry', 'enable', '--endpoint=https://x.test/t'])).toEqual({
+        command: 'telemetry',
+        sub: 'enable',
+        endpoint: 'https://x.test/t',
+      });
+    });
+
+    it('parses disable / status / log with no args', () => {
+      expect(parseInvocation(['telemetry', 'disable'])).toEqual({
+        command: 'telemetry',
+        sub: 'disable',
+      });
+      expect(parseInvocation(['telemetry', 'status'])).toEqual({
+        command: 'telemetry',
+        sub: 'status',
+      });
+      expect(parseInvocation(['telemetry', 'log'])).toEqual({
+        command: 'telemetry',
+        sub: 'log',
+      });
+    });
+
+    it('rejects unknown subcommand', () => {
+      expect(() => parseInvocation(['telemetry', 'turnitup'])).toThrow(/Unknown telemetry/);
+    });
+
+    it('rejects missing subcommand', () => {
+      expect(() => parseInvocation(['telemetry'])).toThrow(ArgsError);
+    });
+
+    it('rejects --endpoint with no URL', () => {
+      expect(() => parseInvocation(['telemetry', 'enable', '--endpoint'])).toThrow(
+        /--endpoint requires/,
+      );
+    });
+
+    it('rejects extra args on disable / status / log', () => {
+      expect(() => parseInvocation(['telemetry', 'disable', 'extra'])).toThrow(
+        /takes no arguments/,
+      );
+    });
+
+    it('rejects unknown flags on enable', () => {
+      expect(() => parseInvocation(['telemetry', 'enable', '--noisy'])).toThrow(
+        /Unexpected argument/,
+      );
+    });
+  });
 });
