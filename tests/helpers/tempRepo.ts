@@ -20,7 +20,7 @@
  * `git init -b <name>` which arrived in 2.28.
  */
 
-import { execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -56,22 +56,22 @@ function runGit(cwd: string, args: readonly string[]): GitResult {
     GIT_TERMINAL_PROMPT: '0',
     GIT_OPTIONAL_LOCKS: '0',
   };
-  try {
-    const stdout = execFileSync('git', args as string[], {
-      cwd,
-      env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      encoding: 'utf8',
-    });
-    return { stdout, stderr: '' };
-  } catch (err) {
-    const error = err as { stdout?: Buffer | string; stderr?: Buffer | string; message: string };
-    const stderr =
-      typeof error.stderr === 'string'
-        ? error.stderr
-        : (error.stderr?.toString('utf8') ?? error.message);
-    throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${stderr.trim()}`);
+  const result = spawnSync('git', args as string[], {
+    cwd,
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    encoding: 'utf8',
+  });
+  if (result.error) {
+    throw new Error(`git ${args.join(' ')} failed in ${cwd}: ${result.error.message}`);
   }
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || '').trim();
+    throw new Error(
+      `git ${args.join(' ')} failed in ${cwd} (exit ${result.status ?? 'null'}): ${detail}`,
+    );
+  }
+  return { stdout: result.stdout, stderr: result.stderr };
 }
 
 export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
