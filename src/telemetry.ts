@@ -63,9 +63,11 @@ export function parseConfig(raw: unknown): TelemetryConfig {
   }
   const r = raw as { version?: unknown; telemetry?: unknown; firstRunBannerSeen?: unknown };
   if (r.version !== CONFIG_VERSION) {
+    // Don't reference a file path here — `parseConfig` is pure and may be
+    // called with arbitrary JSON. `loadConfig` knows the real `p` and
+    // re-throws with that path appended (see below).
     throw new TelemetryConfigError(
-      `unsupported config version ${JSON.stringify(r.version)} (expected ${CONFIG_VERSION}). ` +
-        `Upgrade handoff or delete ${configPath()}.`,
+      `unsupported config version ${JSON.stringify(r.version)} (expected ${CONFIG_VERSION})`,
     );
   }
   const t =
@@ -192,7 +194,19 @@ export function loadConfig(opts: IoOptions = {}): TelemetryConfig {
     const reason = err instanceof Error ? err.message : String(err);
     throw new TelemetryConfigError(`failed to read ${p}: ${reason}`);
   }
-  return parseConfig(raw);
+  // Re-throw shape/version errors with the actual file path so the user
+  // knows which file to fix. `parseConfig` is pure and intentionally
+  // doesn't know `p`.
+  try {
+    return parseConfig(raw);
+  } catch (err) {
+    if (err instanceof TelemetryConfigError) {
+      throw new TelemetryConfigError(
+        `${err.message} (at ${p}). Upgrade handoff or delete the file.`,
+      );
+    }
+    throw err;
+  }
 }
 
 export function saveConfig(config: TelemetryConfig, opts: IoOptions = {}): void {
