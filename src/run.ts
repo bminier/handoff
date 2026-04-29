@@ -11,12 +11,22 @@ type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions)
 let spawnImpl: SpawnFn = nodeSpawn;
 
 /**
- * @internal Test-only injection seam. Replace the spawn used by `run()` with
- * a scripted implementation, then pass `null` to restore the real `spawn`.
- * Production code must not call this — see `tests/README.md`.
+ * @internal Test-only injection seam. Replaces the spawn used by `run()` and
+ * returns a restore function that puts back whatever impl was active before
+ * this call — *not* unconditionally `nodeSpawn`. That lets nested fixtures
+ * (or sibling tests in the same process) stack installs without clobbering
+ * each other when uninstalled in LIFO order. Production code must not call
+ * this — see `tests/README.md`.
  */
-export function __setSpawnForTesting(impl: SpawnFn | null): void {
-  spawnImpl = impl ?? nodeSpawn;
+export function __setSpawnForTesting(impl: SpawnFn): () => void {
+  const previous = spawnImpl;
+  spawnImpl = impl;
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    spawnImpl = previous;
+  };
 }
 
 export class RunError extends Error {

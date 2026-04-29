@@ -123,23 +123,22 @@ function unmatchedChild(command: string, args: readonly string[]): ChildProcess 
 export function createScriptedSpawn(): ScriptedSpawn {
   const expectations: ScriptedExpectation[] = [];
   const calls: ScriptedCall[] = [];
-  let installed = false;
+  let restore: (() => void) | null = null;
 
   const fixture: ScriptedSpawn = {
     calls,
     install() {
-      if (installed) return;
-      __setSpawnForTesting((command, args, options) => {
+      if (restore) return;
+      restore = __setSpawnForTesting((command, args, options) => {
         calls.push({ command, args: [...args], cwd: options.cwd as string | undefined });
         const match = findExpectation(expectations, command, args);
         return match ? fakeChild(match.response) : unmatchedChild(command, args);
       });
-      installed = true;
     },
     uninstall() {
-      if (!installed) return;
-      __setSpawnForTesting(null);
-      installed = false;
+      if (!restore) return;
+      restore();
+      restore = null;
     },
     expect(expectation) {
       expectations.push({
