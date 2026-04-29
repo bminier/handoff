@@ -166,7 +166,8 @@ function parseTelemetry(rest: readonly string[]): TelemetryArgs {
   const sub = rest[0];
   if (sub === undefined || sub.trim() === '') {
     throw new ArgsError(
-      `Usage: handoff telemetry <${TELEMETRY_SUBCOMMANDS.join('|')}> [--endpoint <url>]`,
+      `Usage: handoff telemetry <${TELEMETRY_SUBCOMMANDS.join('|')}> ` +
+        `('enable' additionally accepts '--endpoint <url>').`,
     );
   }
   if (!isTelemetrySubcommand(sub)) {
@@ -200,7 +201,7 @@ function parseTelemetry(rest: readonly string[]): TelemetryArgs {
       }
       throw new ArgsError(
         `Unexpected argument '${tok}' to 'handoff telemetry enable'. ` +
-          `Only '--endpoint <url>' is supported.`,
+          `Only '--endpoint <url>' (or '--endpoint=<url>') is supported.`,
       );
     }
     return endpoint === undefined

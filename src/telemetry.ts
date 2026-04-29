@@ -65,7 +65,7 @@ export function parseConfig(raw: unknown): TelemetryConfig {
   if (r.version !== CONFIG_VERSION) {
     throw new TelemetryConfigError(
       `unsupported config version ${JSON.stringify(r.version)} (expected ${CONFIG_VERSION}). ` +
-        `Upgrade handoff or delete ${CONFIG_FILENAME}.`,
+        `Upgrade handoff or delete ${configPath()}.`,
     );
   }
   const t =
