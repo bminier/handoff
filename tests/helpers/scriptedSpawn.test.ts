@@ -46,6 +46,16 @@ describe('scriptedSpawn', () => {
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
   });
 
+  it('rejects with RunError when only a signal is set (matches Node close-on-signal)', async () => {
+    spawn.expect({
+      command: 'gh',
+      argv: ['repo', 'view'],
+      response: { signal: 'SIGTERM' },
+    });
+
+    await expect(run('gh', ['repo', 'view'])).rejects.toBeInstanceOf(RunError);
+  });
+
   it('expectGh wires a JSON response into a github.ts call', async () => {
     spawn.expectGh(['issue', 'view', '7', '--json', 'number,title,body,labels,url'], {
       number: 7,

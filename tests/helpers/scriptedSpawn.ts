@@ -91,7 +91,11 @@ function fakeChild(response: ScriptedResponse): ChildProcess {
   setImmediate(() => {
     if (response.stdout) stdout.emit('data', Buffer.from(response.stdout, 'utf8'));
     if (response.stderr) stderr.emit('data', Buffer.from(response.stderr, 'utf8'));
-    const code = response.exitCode ?? 0;
+    // Match Node's contract: when a child is terminated by a signal, `close`
+    // fires with `code === null`. Otherwise it fires with the explicit exit
+    // code (or 0). Without this branch a `response: { signal: 'SIGTERM' }`
+    // test would resolve in run.ts as if the process had exited cleanly.
+    const code = response.signal ? null : (response.exitCode ?? 0);
     child.emit('close', code, response.signal ?? null);
   });
 
