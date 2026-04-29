@@ -131,6 +131,27 @@ describe('saveConfig / loadConfig', () => {
     writeFileSync(configPath(home), '{not valid json', 'utf8');
     expect(() => loadConfig({ home })).toThrow(TelemetryConfigError);
   });
+
+  it('augments parseConfig errors with the actual home-scoped file path', () => {
+    // Regression: parseConfig is pure and doesn't know the file path; it
+    // used to call configPath() with no args, which meant tests (and any
+    // future caller with a non-default home) saw the wrong path in the
+    // error. loadConfig should append the path it actually read from.
+    mkdirSync(homeRoot(home), { recursive: true });
+    writeFileSync(
+      configPath(home),
+      JSON.stringify({ version: 999, telemetry: {}, firstRunBannerSeen: false }),
+      'utf8',
+    );
+    try {
+      loadConfig({ home });
+      throw new Error('expected loadConfig to throw');
+    } catch (err) {
+      expect(err).toBeInstanceOf(TelemetryConfigError);
+      expect((err as Error).message).toContain(configPath(home));
+      expect((err as Error).message).toContain('unsupported config version 999');
+    }
+  });
 });
 
 describe('event constructors — no-PII shape', () => {
