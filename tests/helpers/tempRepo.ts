@@ -49,8 +49,11 @@ export interface TempRepo {
 }
 
 function runGit(cwd: string, args: readonly string[]): GitResult {
-  // Pin a couple of envs so the repo behaves the same across developer
-  // machines: don't pick up the user's commit-signing config, don't prompt.
+  // Pin a couple of envs so git can't block the test: GIT_TERMINAL_PROMPT=0
+  // turns off credential/auth prompts (so a misconfigured remote can't hang),
+  // and GIT_OPTIONAL_LOCKS=0 skips advisory locks that occasionally trip on
+  // shared CI runners. Signing is disabled separately via `git config
+  // commit.gpgsign false` after init.
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
