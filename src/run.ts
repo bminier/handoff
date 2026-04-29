@@ -1,9 +1,22 @@
-import { spawn } from 'node:child_process';
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
 export interface RunResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+
+let spawnImpl: SpawnFn = nodeSpawn;
+
+/**
+ * @internal Test-only injection seam. Replace the spawn used by `run()` with
+ * a scripted implementation, then pass `null` to restore the real `spawn`.
+ * Production code must not call this — see `tests/README.md`.
+ */
+export function __setSpawnForTesting(impl: SpawnFn | null): void {
+  spawnImpl = impl ?? nodeSpawn;
 }
 
 export class RunError extends Error {
@@ -36,7 +49,7 @@ export function run(
   opts: RunOpts = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawnImpl(command, args, {
       cwd: opts.cwd,
       env: opts.env ?? process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -45,10 +58,14 @@ export function run(
 
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => {
+    // stdio: ['ignore', 'pipe', 'pipe'] guarantees both streams are present at
+    // runtime. The injectable SpawnFn typing widens to ChildProcess, where
+    // stdout/stderr are nullable, so assert here rather than every test fake
+    // having to retype the return.
+    child.stdout!.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8');
     });
-    child.stderr.on('data', (chunk: Buffer) => {
+    child.stderr!.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
     child.on('error', reject);
