@@ -79,27 +79,36 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
   const path = mkdtempSync(join(tmpdir(), 'handoff-temprepo-'));
   let cleanedUp = false;
 
-  // git init, then point HEAD at the configured initial branch *before* any
-  // commit. `git init -b <name>` is the modern shortcut but only landed in
-  // 2.28; symbolic-ref works on every supported version.
-  runGit(path, ['init', '--quiet']);
-  runGit(path, ['symbolic-ref', 'HEAD', `refs/heads/${initialBranch}`]);
+  // If any setup step throws (missing git, bad ref name, etc.) the caller
+  // never gets a TempRepo handle, so afterEach's cleanup() won't fire and
+  // the mkdtemp directory would leak. Catch, scrub, and rethrow.
+  try {
+    // git init, then point HEAD at the configured initial branch *before* any
+    // commit. `git init -b <name>` is the modern shortcut but only landed in
+    // 2.28; symbolic-ref works on every supported version.
+    runGit(path, ['init', '--quiet']);
+    runGit(path, ['symbolic-ref', 'HEAD', `refs/heads/${initialBranch}`]);
 
-  // Local config so `git commit` works on machines without global identity
-  // and never tries to sign — signing prompts would hang the test.
-  runGit(path, ['config', 'user.email', 'handoff-test@example.invalid']);
-  runGit(path, ['config', 'user.name', 'Handoff Test']);
-  runGit(path, ['config', 'commit.gpgsign', 'false']);
-  runGit(path, ['config', 'tag.gpgsign', 'false']);
+    // Local config so `git commit` works on machines without global identity
+    // and never tries to sign — signing prompts would hang the test.
+    runGit(path, ['config', 'user.email', 'handoff-test@example.invalid']);
+    runGit(path, ['config', 'user.name', 'Handoff Test']);
+    runGit(path, ['config', 'commit.gpgsign', 'false']);
+    runGit(path, ['config', 'tag.gpgsign', 'false']);
 
-  // Empty initial commit so HEAD resolves and `git worktree add` has a base.
-  runGit(path, ['commit', '--allow-empty', '-m', 'init', '--no-gpg-sign']);
+    // Empty initial commit so HEAD resolves and `git worktree add` has a base.
+    runGit(path, ['commit', '--allow-empty', '-m', 'init', '--no-gpg-sign']);
 
-  for (const branch of opts.branches ?? []) {
-    runGit(path, ['branch', branch]);
-  }
-  for (const [name, url] of Object.entries(opts.remotes ?? {})) {
-    runGit(path, ['remote', 'add', name, url]);
+    for (const branch of opts.branches ?? []) {
+      runGit(path, ['branch', branch]);
+    }
+    for (const [name, url] of Object.entries(opts.remotes ?? {})) {
+      runGit(path, ['remote', 'add', name, url]);
+    }
+  } catch (err) {
+    cleanedUp = true;
+    rmSync(path, { recursive: true, force: true });
+    throw err;
   }
 
   return {

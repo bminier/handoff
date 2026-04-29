@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 import { branchExists } from '../../src/git.ts';
 import { createTempRepo, type TempRepo } from './tempRepo.ts';
@@ -51,5 +52,17 @@ describe('tempRepo', () => {
     repo.cleanup();
     expect(existsSync(path)).toBe(false);
     expect(() => repo.cleanup()).not.toThrow();
+  });
+
+  it('does not leak a temp dir if setup fails', () => {
+    const before = readdirSync(tmpdir()).filter((n) => n.startsWith('handoff-temprepo-'));
+
+    // `..bad` is rejected by `git branch` with "invalid branch name", which
+    // throws partway through setup — after mkdtemp but before the handle is
+    // returned. Guard ensures the directory doesn't survive the throw.
+    expect(() => createTempRepo({ branches: ['..bad'] })).toThrow();
+
+    const after = readdirSync(tmpdir()).filter((n) => n.startsWith('handoff-temprepo-'));
+    expect(after.sort()).toEqual(before.sort());
   });
 });
