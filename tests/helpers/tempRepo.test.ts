@@ -55,19 +55,17 @@ describe('tempRepo', () => {
   });
 
   it('does not leak a temp dir if setup fails', () => {
-    const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith('handoff-temprepo-')));
+    // Use a dedicated prefix so the listing only sees dirs created by this
+    // test. Sibling tempRepo callers (default prefix) running in parallel
+    // under bun's cross-file scheduler can't leak into the snapshot.
+    const prefix = 'handoff-temprepo-leakcheck-';
 
     // `..bad` is rejected by `git branch` with "invalid branch name", which
     // throws partway through setup — after mkdtemp but before the handle is
     // returned. Guard ensures the directory doesn't survive the throw.
-    expect(() => createTempRepo({ branches: ['..bad'] })).toThrow();
+    expect(() => createTempRepo({ tmpPrefix: prefix, branches: ['..bad'] })).toThrow();
 
-    // Asserting "no *new* entries appeared" rather than "snapshot unchanged"
-    // is robust against bun's cross-file parallelism — sibling tests creating
-    // or removing their own `handoff-temprepo-*` dirs during this window
-    // shouldn't affect the verdict on whether *our* failed call leaked one.
-    const after = readdirSync(tmpdir()).filter((n) => n.startsWith('handoff-temprepo-'));
-    const newEntries = after.filter((n) => !before.has(n));
-    expect(newEntries).toEqual([]);
+    const survivors = readdirSync(tmpdir()).filter((n) => n.startsWith(prefix));
+    expect(survivors).toEqual([]);
   });
 });

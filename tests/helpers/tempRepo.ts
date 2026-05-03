@@ -32,7 +32,15 @@ export interface TempRepoOptions {
   branches?: readonly string[];
   /** Remotes to register. Map of remote name → URL. URL can be any string git accepts. */
   remotes?: Readonly<Record<string, string>>;
+  /**
+   * `mkdtemp` prefix under `os.tmpdir()`. Defaults to `'handoff-temprepo-'`.
+   * Override when a test needs to scan `tmpdir()` for its own dirs without
+   * picking up sibling tempRepo callers running in parallel.
+   */
+  tmpPrefix?: string;
 }
+
+export const DEFAULT_TMP_PREFIX = 'handoff-temprepo-';
 
 export interface GitResult {
   stdout: string;
@@ -79,7 +87,7 @@ function runGit(cwd: string, args: readonly string[]): GitResult {
 
 export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
   const initialBranch = opts.initialBranch ?? 'dev';
-  const path = mkdtempSync(join(tmpdir(), 'handoff-temprepo-'));
+  const path = mkdtempSync(join(tmpdir(), opts.tmpPrefix ?? DEFAULT_TMP_PREFIX));
   let cleanedUp = false;
 
   // If any setup step throws (missing git, bad ref name, etc.) the caller
