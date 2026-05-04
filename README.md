@@ -188,9 +188,11 @@ bun run lint
 bun run format
 ```
 
-The `test` script pins `--max-concurrency=1` because the I/O-test fixtures
-(`tests/helpers/`) lean on Bun's default single-threaded execution; bare
-`bun test` would bypass that pin. See `tests/README.md` for the rationale.
+Use `bun run test`, not bare `bun test`. The script pins
+`--max-concurrency=1` so a future `test.concurrent()` marker (or a `bun
+test --concurrent` invocation) can't race the I/O-test fixtures in
+`tests/helpers/`, which depend on process-global state. See
+`tests/README.md` for the full rationale.
 
 Pre-commit runs prettier + eslint via husky + lint-staged.
 

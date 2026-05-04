@@ -131,13 +131,19 @@ the `tempRepo` pattern) and the module-level `spawnImpl` in `src/run.ts`
 are both process-global, and a sibling test running concurrently would
 observe the wrong cwd or the wrong spawn.
 
-That assumption is pinned in `package.json`: the `test` script runs
-`bun test --max-concurrency=1`, which caps even `test.concurrent()`
-markers at one in-flight test. CI invokes `bun run test` so the flag
-applies there too. **Run `bun run test` locally rather than bare `bun
-test`** — the bare form falls back to Bun's default (currently 20
-concurrent) and would bypass the pin if a future contributor adds
-`test.concurrent()`.
+Bun is serial by default — a bare `bun test` with no `test.concurrent()`
+markers and no `--concurrent` flag runs one test at a time. The risk is
+forward-only: a contributor later adds `test.concurrent()` to a test that
+happens to use `chdir` or `spawnImpl`, or someone passes `--concurrent`,
+and Bun then schedules up to 20 in-flight tests (its default
+`--max-concurrency` cap) that race the global state.
+
+`package.json`'s `test` script pins the cap to 1
+(`bun test --max-concurrency=1`), so even those future opt-ins still
+serialize. CI invokes `bun run test` so the flag applies there too. **Run
+`bun run test` locally rather than bare `bun test`** — bare doesn't pick
+up the pin, and if any test in the suite gets marked concurrent, your
+local run can hit a flake CI never sees.
 
 If we ever want real concurrency, the fix is structural: thread `cwd`
 through every `git.ts` function (it already accepts `cwd` at the `run()`

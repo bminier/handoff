@@ -178,21 +178,29 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
 }
 
 function isWithinRepoNamespace(linkedPath: string, repoPath: string): boolean {
-  // Compare basenames rather than full paths. The directory parts are a
-  // platform-canonicalisation minefield (macOS /var ↔ /private/var; Windows
-  // RUNNER~1 ↔ runneradmin short/long names; backslashes vs git's forward
-  // slashes), and realpath resolution differs across runtimes — Bun on
-  // Windows CI didn't resolve the short name even when called explicitly,
-  // which broke the previous full-path predicate.
+  // Compare basenames, not full paths. The directory parts are a
+  // platform-canonicalisation minefield (macOS /var ↔ /private/var;
+  // Windows RUNNER~1 ↔ runneradmin short/long names; backslashes vs git's
+  // forward slashes), and realpath resolution differs across runtimes —
+  // Bun on Windows CI didn't resolve the short name even when called
+  // explicitly, which broke the previous full-path predicate.
   //
-  // Basenames sidestep all of that. createWorktree puts worktrees at
-  // `<repoRoot>-<branch-tail>` (see worktreePath in src/branch.ts), so the
-  // legitimate sibling's basename starts with `<repo-basename>-`. The
-  // repo's basename is `<prefix><6-random-chars>` (`mkdtempSync`), so the
-  // collision risk against an unrelated path that happens to share that
-  // exact basename is vanishingly small — and any path that *does* match
-  // that basename pattern was almost certainly created by createWorktree
-  // off this fixture, so removing it is the right answer anyway.
+  // The basename predicate trades off: it covers the realistic threat
+  // (a typo or accidentally absolute path the test never meant to
+  // register — those will have an unrelated basename and be left alone)
+  // but it does *not* cover a test that deliberately registers a
+  // worktree at `<some-other-dir>/<repo-basename>-<anything>`. Such a
+  // path shares the random-suffix basename and would be removed by
+  // cleanup. We accept that gap because (a) constructing such a path
+  // requires the test to read `repo.path`, splice its basename into a
+  // foreign directory, and pass the result to `repo.git(['worktree',
+  // 'add', ...])` — i.e. it's deliberate, not accidental — and (b) any
+  // path that does match the pattern is almost certainly mimicking the
+  // createWorktree contract, where removing it is the right answer.
+  //
+  // If a future test legitimately needs to register a worktree outside
+  // the namespace, the test owns the cleanup of that path itself; this
+  // helper only sweeps what looks like its own.
   return basename(linkedPath).startsWith(`${basename(repoPath)}-`);
 }
 
