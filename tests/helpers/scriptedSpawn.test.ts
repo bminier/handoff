@@ -46,6 +46,32 @@ describe('scriptedSpawn', () => {
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
   });
 
+  it('consumes each expectation on match — a second identical call needs its own', async () => {
+    // Pins the FIFO/consuming contract documented at the top of
+    // scriptedSpawn.ts: registering one ticket allows exactly one
+    // matching call, and a duplicate spawn fails the same way an
+    // un-registered call would. Without this test, a regression that
+    // reverted to non-consuming matching ("first registration satisfies
+    // all calls") would silently let test code re-spawn the same
+    // subprocess unnoticed.
+    spawn.expect({
+      command: 'git',
+      argv: ['status'],
+      response: { stdout: 'first\n' },
+    });
+
+    const first = await run('git', ['status']);
+    expect(first.stdout).toBe('first\n');
+
+    await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
+
+    // Two registrations → two matching calls allowed, in registration order.
+    spawn.expect({ command: 'git', argv: ['status'], response: { stdout: 'a\n' } });
+    spawn.expect({ command: 'git', argv: ['status'], response: { stdout: 'b\n' } });
+    expect((await run('git', ['status'])).stdout).toBe('a\n');
+    expect((await run('git', ['status'])).stdout).toBe('b\n');
+  });
+
   it('install() resets expectations and calls so reused fixtures start clean', async () => {
     spawn.expect({
       command: 'git',

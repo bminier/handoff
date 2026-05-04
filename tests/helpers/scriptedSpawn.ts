@@ -1,12 +1,13 @@
 /**
  * Scripted-spawn fixture for I/O modules that shell out via `run.ts`.
  *
- * Each expectation registers a `(command, argv) → response` mapping.
- * Matching is *non-consuming*: a single expectation will satisfy every
- * subsequent call with that exact `(command, argv)` pair, so the fixture
- * does not by itself catch "the code under test ran the same subprocess
- * twice when it should have run it once." Use the recorded `calls` array
- * to assert call counts when that matters.
+ * Each `expect()` registers a `(command, argv) → response` mapping.
+ * Matching is *consuming* and FIFO: a call matches the first registered
+ * expectation that fits, and the expectation is removed once it fires.
+ * If the same subprocess is expected twice, register two expectations.
+ * If a call has no matching expectation — including a duplicate that
+ * already consumed its match — the spawn emits an `error` event and the
+ * test fails loudly.
  *
  * Usage:
  *
@@ -69,7 +70,11 @@ export interface ScriptedSpawn {
    * call from `afterEach` so the override doesn't leak past the test.
    */
   uninstall(): void;
-  /** Register a `(command, argv) → response` mapping. Last write wins. */
+  /**
+   * Register a `(command, argv) → response` mapping. Each `expect()` adds
+   * one ticket; calls consume tickets FIFO. Register N times to allow N
+   * matching invocations.
+   */
   expect(expectation: ScriptedExpectation): void;
   /** Register a `gh` invocation that returns a JSON payload as stdout. */
   expectGh(argv: readonly string[], jsonBody: unknown): void;
@@ -85,16 +90,20 @@ function argvEqual(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-function findExpectation(
-  expectations: readonly ScriptedExpectation[],
+function consumeExpectation(
+  expectations: ScriptedExpectation[],
   command: string,
   args: readonly string[],
 ): ScriptedExpectation | undefined {
-  // Walk in reverse so a later-registered expectation overrides an earlier one
-  // for the same (command, argv) pair — matches "last write wins".
-  for (let i = expectations.length - 1; i >= 0; i -= 1) {
+  // FIFO: the first registered expectation that matches wins, and is
+  // removed so a second identical call has to find its own ticket. Tests
+  // that legitimately need N invocations register N expectations.
+  for (let i = 0; i < expectations.length; i += 1) {
     const e = expectations[i];
-    if (e && e.command === command && argvEqual(e.argv, args)) return e;
+    if (e && e.command === command && argvEqual(e.argv, args)) {
+      expectations.splice(i, 1);
+      return e;
+    }
   }
   return undefined;
 }
@@ -163,7 +172,7 @@ export function createScriptedSpawn(): ScriptedSpawn {
       calls.length = 0;
       restore = __setSpawnForTesting((command, args, options) => {
         calls.push({ command, args: [...args], cwd: options.cwd as string | undefined });
-        const match = findExpectation(expectations, command, args);
+        const match = consumeExpectation(expectations, command, args);
         return match ? fakeChild(match.response) : unmatchedChild(command, args);
       });
     },
