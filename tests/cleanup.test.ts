@@ -187,26 +187,38 @@ describe('cleanup — production wiring (no opts.deps)', () => {
   afterEach(() => spawn.uninstall());
 
   it('falls through to defaultDeps and reaches the real gh wrapper', async () => {
+    const expectedArgv = [
+      'pr',
+      'list',
+      '--head',
+      'no-such-branch',
+      '--state',
+      'merged',
+      '--json',
+      'number',
+      '--limit',
+      '1',
+    ];
     spawn.expect({
       command: 'gh',
-      argv: [
-        'pr',
-        'list',
-        '--head',
-        'no-such-branch',
-        '--state',
-        'merged',
-        '--json',
-        'number',
-        '--limit',
-        '1',
-      ],
+      argv: expectedArgv,
       response: { stderr: 'gh test stub: not authenticated', exitCode: 1 },
     });
 
     const result = await cleanup('no-such-branch', { repoRoot: '/work/handoff' });
 
+    // Asserting only `status === 'unknown'` would also pass if the wiring
+    // missed the registered expectation entirely (scriptedSpawn's
+    // unmatched-call path emits an Error which cleanup also surfaces as
+    // 'unknown'). Pin both ends of the wire so a regression in either
+    // `defaultDeps.prMergedFor` *or* the gh argv contract trips this test:
+    //   - spawn.calls confirms cleanup actually shelled out to the
+    //     expected `gh pr list ...` invocation
+    //   - the message containing the stub's stderr text confirms
+    //     cleanup's GhError handling consumed that exact failure
+    expect(spawn.calls).toEqual([{ command: 'gh', args: expectedArgv, cwd: undefined }]);
     expect(result.status).toBe('unknown');
     expect(result.message).toContain('Could not check PR status');
+    expect(result.message).toContain('gh test stub: not authenticated');
   });
 });
