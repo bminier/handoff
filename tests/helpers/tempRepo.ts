@@ -100,6 +100,11 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
     runGit(path, ['init', '--quiet']);
     runGit(path, ['symbolic-ref', 'HEAD', `refs/heads/${initialBranch}`]);
 
+    // Point hooksPath at a directory we never create so a developer's global
+    // `core.hooksPath` (or template-installed hooks) can't fire on the
+    // bootstrap commit, hang the test, or leak side effects into the fixture.
+    runGit(path, ['config', 'core.hooksPath', join(path, '.git', 'handoff-no-hooks')]);
+
     // Local config so `git commit` works on machines without global identity
     // and never tries to sign — signing prompts would hang the test.
     runGit(path, ['config', 'user.email', 'handoff-test@example.invalid']);
