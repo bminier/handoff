@@ -46,6 +46,23 @@ describe('scriptedSpawn', () => {
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
   });
 
+  it('install() resets expectations and calls so reused fixtures start clean', async () => {
+    spawn.expect({
+      command: 'git',
+      argv: ['status'],
+      response: { stdout: 'phase one\n' },
+    });
+    await run('git', ['status']);
+    expect(spawn.calls).toHaveLength(1);
+
+    // Phase two: uninstall, reinstall same fixture. The phase-one expectation
+    // and the phase-one recorded call should both be gone.
+    spawn.uninstall();
+    spawn.install();
+    expect(spawn.calls).toEqual([]);
+    await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched/);
+  });
+
   it("drives run()'s spawn-error path when response.error is set", async () => {
     // Synthetic ENOENT: the binary isn't on PATH. Node fires 'error' (never
     // 'close') and `run()` rejects with the raw Error — *not* a RunError,

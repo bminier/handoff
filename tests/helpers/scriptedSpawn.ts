@@ -54,7 +54,11 @@ export interface ScriptedCall {
 }
 
 export interface ScriptedSpawn {
-  /** Replace the spawn used by `run.ts`. Idempotent. */
+  /**
+   * Replace the spawn used by `run.ts` and reset recorded `calls` plus any
+   * registered `expectations`. Idempotent: a second `install()` with no
+   * intervening `uninstall()` is a no-op (state is *not* re-cleared).
+   */
   install(): void;
   /** Restore the real spawn. Always call from `afterEach`. */
   uninstall(): void;
@@ -62,7 +66,7 @@ export interface ScriptedSpawn {
   expect(expectation: ScriptedExpectation): void;
   /** Register a `gh` invocation that returns a JSON payload as stdout. */
   expectGh(argv: readonly string[], jsonBody: unknown): void;
-  /** Calls observed since `install()`, in order. */
+  /** Calls observed since the most recent `install()`, in order. */
   calls: ScriptedCall[];
 }
 
@@ -144,6 +148,12 @@ export function createScriptedSpawn(): ScriptedSpawn {
     calls,
     install() {
       if (restore) return;
+      // Reset on every fresh install so a fixture reused across phases
+      // (uninstall + reinstall) honours the documented "calls since the
+      // most recent install()" contract instead of accumulating state from
+      // earlier phases. Mutate in place — `fixture.calls` is a reference.
+      expectations.length = 0;
+      calls.length = 0;
       restore = __setSpawnForTesting((command, args, options) => {
         calls.push({ command, args: [...args], cwd: options.cwd as string | undefined });
         const match = findExpectation(expectations, command, args);
