@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { cleanup, type CleanupDeps } from '../src/cleanup.ts';
 import { GhError } from '../src/github.ts';
+import { createScriptedSpawn } from './helpers/scriptedSpawn.ts';
 
 interface FakeState {
   mergedReturn: boolean | Error;
@@ -166,5 +167,46 @@ describe('cleanup', () => {
     expect(result.message).toContain('Removed worktree');
     expect(result.message).toContain('branch codex/issue-11 was already gone');
     expect(state.calls.deleteBranch.length).toBe(0);
+  });
+});
+
+describe('cleanup — production wiring (no opts.deps)', () => {
+  // The DI tests above all pass an explicit `deps` object, so the
+  // `opts.deps ?? defaultDeps` fallback that production (cli.ts) actually
+  // hits is otherwise uncovered. A regression in the defaultDeps mapping
+  // — `prMergedFor` swapped, `existsSync` undefined, etc. — would ship
+  // unnoticed.
+  //
+  // We use scriptedSpawn here even though tests/README.md says not to mix
+  // it with per-module tests. The carve-out: this is an integration check
+  // of the wiring through to the gh subprocess, exactly like the #15
+  // CLI-level pattern. We fake the gh call so it fails predictably and
+  // assert cleanup() reaches the failure path.
+  const spawn = createScriptedSpawn();
+  beforeEach(() => spawn.install());
+  afterEach(() => spawn.uninstall());
+
+  it('falls through to defaultDeps and reaches the real gh wrapper', async () => {
+    spawn.expect({
+      command: 'gh',
+      argv: [
+        'pr',
+        'list',
+        '--head',
+        'no-such-branch',
+        '--state',
+        'merged',
+        '--json',
+        'number',
+        '--limit',
+        '1',
+      ],
+      response: { stderr: 'gh test stub: not authenticated', exitCode: 1 },
+    });
+
+    const result = await cleanup('no-such-branch', { repoRoot: '/work/handoff' });
+
+    expect(result.status).toBe('unknown');
+    expect(result.message).toContain('Could not check PR status');
   });
 });
