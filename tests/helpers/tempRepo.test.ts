@@ -70,17 +70,20 @@ describe('tempRepo', () => {
   });
 
   it('does not leak a temp dir if setup fails', () => {
-    // Use a dedicated prefix so the listing only sees dirs created by this
-    // test. Sibling tempRepo callers (default prefix) running in parallel
-    // under bun's cross-file scheduler can't leak into the snapshot.
+    // Dedicated prefix isolates from sibling tempRepo callers in this run;
+    // the before-snapshot then isolates from stale `*-leakcheck-*` dirs
+    // left behind by a previous aborted run on the same machine. Either
+    // alone would let unrelated state poison the assertion.
     const prefix = 'handoff-temprepo-leakcheck-';
+    const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith(prefix)));
 
     // `..bad` is rejected by `git branch` with "invalid branch name", which
     // throws partway through setup — after mkdtemp but before the handle is
     // returned. Guard ensures the directory doesn't survive the throw.
     expect(() => createTempRepo({ tmpPrefix: prefix, branches: ['..bad'] })).toThrow();
 
-    const survivors = readdirSync(tmpdir()).filter((n) => n.startsWith(prefix));
-    expect(survivors).toEqual([]);
+    const after = readdirSync(tmpdir()).filter((n) => n.startsWith(prefix));
+    const newEntries = after.filter((n) => !before.has(n));
+    expect(newEntries).toEqual([]);
   });
 });
