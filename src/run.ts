@@ -9,10 +9,12 @@ export interface RunResult {
 
 /**
  * `run()` always launches with `stdio: ['ignore', 'pipe', 'pipe']`, so both
- * stdout and stderr are guaranteed at runtime. Surface that in the type so
- * scripted-spawn fakes have to provide piped streams (compile error, not a
- * mid-test `TypeError` on `.on('data', ...)`) and `run()` itself can drop
- * the non-null assertions.
+ * stdout and stderr are guaranteed at runtime. Surfacing that in the type
+ * lets `run()` drop its non-null assertions and signals to test-fake authors
+ * that piped streams are part of the contract — though TypeScript can't
+ * fully enforce this, since a fake can launder the type via
+ * `as unknown as PipedChildProcess`. The benefit is the cast is then
+ * explicit at the seam, not silently absorbed by `!` inside `run()`.
  */
 export type PipedChildProcess = Omit<ChildProcess, 'stdout' | 'stderr'> & {
   stdout: Readable;

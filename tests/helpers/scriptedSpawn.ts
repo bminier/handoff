@@ -1,9 +1,12 @@
 /**
  * Scripted-spawn fixture for I/O modules that shell out via `run.ts`.
  *
- * Each expectation matches one `(command, argv)` invocation exactly. The
- * fixture records calls in order, in case the test wants to assert which
- * subprocesses were spawned and with what arguments.
+ * Each expectation registers a `(command, argv) → response` mapping.
+ * Matching is *non-consuming*: a single expectation will satisfy every
+ * subsequent call with that exact `(command, argv)` pair, so the fixture
+ * does not by itself catch "the code under test ran the same subprocess
+ * twice when it should have run it once." Use the recorded `calls` array
+ * to assert call counts when that matters.
  *
  * Usage:
  *
@@ -59,7 +62,12 @@ export interface ScriptedSpawn {
    * intervening `uninstall()` is a no-op (state is *not* re-cleared).
    */
   install(): void;
-  /** Restore the real spawn. Always call from `afterEach`. */
+  /**
+   * Pop this fixture's spawn override. Restores whatever impl was active
+   * when `install()` ran — which is the real `spawn` for a single-fixture
+   * test, but a sibling scripted-spawn fixture under stacked use. Always
+   * call from `afterEach` so the override doesn't leak past the test.
+   */
   uninstall(): void;
   /** Register a `(command, argv) → response` mapping. Last write wins. */
   expect(expectation: ScriptedExpectation): void;

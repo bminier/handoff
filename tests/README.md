@@ -57,9 +57,11 @@ else — non-zero exit codes (`response.exitCode = 1`) reject through `RunError`
 If a call doesn't match any registered expectation, the spawn emits an
 `error` event so the test fails loudly rather than silently hanging.
 
-The seam itself is `__setSpawnForTesting` in `src/run.ts`. The `__` prefix and
-`@internal` JSDoc tag keep production code from reaching for it. Tests should
-go through `createScriptedSpawn()`.
+The seam itself is `__setSpawnForTesting` in `src/run.ts`. The `__` prefix
+and `@internal` JSDoc tag are conventional markers — neither is enforced
+(no `stripInternal`, source files are executed directly), so production
+code _could_ import it. Don't. Tests go through `createScriptedSpawn()`;
+the seam exists for that fixture, not for general use.
 
 ## `tests/helpers/tempRepo.ts`
 
