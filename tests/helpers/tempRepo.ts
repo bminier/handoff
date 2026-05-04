@@ -23,7 +23,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 export interface TempRepoOptions {
   /** Initial branch name. Defaults to `'dev'` to match this repo's convention. */
@@ -88,18 +88,24 @@ function runGit(cwd: string, args: readonly string[]): GitResult {
 export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
   const initialBranch = opts.initialBranch ?? 'dev';
   const tmpPrefix = opts.tmpPrefix ?? DEFAULT_TMP_PREFIX;
-  // mkdtempSync joins the prefix with tmpdir() and creates the result. A
-  // prefix containing path separators (e.g. `'../foo-'`) would escape
-  // tmpdir entirely, and cleanup would later rmSync the external path —
-  // path.join collapses the `..` segments. Test code is the only caller,
-  // so this is guarding against typos (and only typos), but a 3-line
-  // check beats reasoning about path-traversal blast radius.
-  if (/[\\/]/.test(tmpPrefix)) {
+  // mkdtempSync joins the prefix with tmpdir() and creates a dir at
+  // `<joined><6-random-chars>`. The escape modes are:
+  //   - separators: `'a/b-'` lands in `tmpdir/a`, not tmpdir
+  //   - `'.'`: collapses to tmpdir itself, so mkdtemp creates
+  //     `<tmpdir>XXXXXX` — a *sibling* of tmpdir, not a child
+  //   - `'..'`: escapes to tmpdir's parent
+  // and cleanup would later rmSync that out-of-namespace path.
+  //
+  // A separator-only check missed the `.`/`..` cases. Use the same
+  // invariant for all of them: `dirname(joined)` must equal tmpdir,
+  // i.e. mkdtemp's output lands directly under it.
+  const candidate = join(tmpdir(), tmpPrefix);
+  if (resolve(dirname(candidate)) !== resolve(tmpdir())) {
     throw new Error(
-      `tmpPrefix must be a single basename segment with no path separators; got: ${tmpPrefix}`,
+      `tmpPrefix would create a fixture outside os.tmpdir(): ${tmpPrefix} → ${candidate}`,
     );
   }
-  const path = mkdtempSync(join(tmpdir(), tmpPrefix));
+  const path = mkdtempSync(candidate);
   let cleanedUp = false;
 
   // If any setup step throws (missing git, bad ref name, etc.) the caller
