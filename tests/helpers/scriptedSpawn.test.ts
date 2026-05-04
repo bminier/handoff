@@ -46,6 +46,27 @@ describe('scriptedSpawn', () => {
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
   });
 
+  it('uninstall throws when expectations were registered but never consumed', () => {
+    // The test infra carve-out: this `it` manages its own fixture so the
+    // outer beforeEach/afterEach pair (which would re-throw on a clean
+    // teardown of the leftover) doesn't double-fire. A test that says
+    // "this subprocess must run" and then never triggers it is exactly
+    // the silent-pass bug strict uninstall is here to surface.
+    const local = createScriptedSpawn();
+    local.install();
+    local.expect({
+      command: 'gh',
+      argv: ['repo', 'view'],
+      response: { stdout: '{}' },
+    });
+
+    expect(() => local.uninstall()).toThrow(/unconsumed expectation\(s\).*gh repo view/);
+    // Drained on throw — a follow-up uninstall must be a clean no-op so
+    // the next `install()` (or a sibling fixture's teardown) doesn't
+    // re-trip on the same leftovers.
+    expect(() => local.uninstall()).not.toThrow();
+  });
+
   it('consumes each expectation on match — a second identical call needs its own', async () => {
     // Pins the FIFO/consuming contract documented at the top of
     // scriptedSpawn.ts: registering one ticket allows exactly one

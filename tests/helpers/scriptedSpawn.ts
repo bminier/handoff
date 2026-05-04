@@ -7,7 +7,9 @@
  * If the same subprocess is expected twice, register two expectations.
  * If a call has no matching expectation — including a duplicate that
  * already consumed its match — the spawn emits an `error` event and the
- * test fails loudly.
+ * test fails loudly. `uninstall()` also throws if any expectations were
+ * never consumed, so a "this should have happened but didn't" bug
+ * doesn't slip through as a silently-passing test.
  *
  * Usage:
  *
@@ -68,6 +70,12 @@ export interface ScriptedSpawn {
    * when `install()` ran — which is the real `spawn` for a single-fixture
    * test, but a sibling scripted-spawn fixture under stacked use. Always
    * call from `afterEach` so the override doesn't leak past the test.
+   *
+   * Throws if any registered expectations were never consumed. An
+   * unconsumed expectation means the test claimed a subprocess would run
+   * and it didn't — surfacing that loudly catches "the code stopped
+   * spawning what we expected" regressions that a passive call-count
+   * assertion would miss.
    */
   uninstall(): void;
   /**
@@ -180,6 +188,19 @@ export function createScriptedSpawn(): ScriptedSpawn {
       if (!restore) return;
       restore();
       restore = null;
+      // Strict teardown: an `expect()` registration that never fires is a
+      // silent test bug — the test claimed "this subprocess will happen"
+      // and would still pass if the code stopped spawning it. Drain the
+      // queue *before* throwing so a subsequent `install()` starts clean
+      // even if afterEach fails here. Spawn is already restored above, so
+      // unrelated tests aren't polluted by this throw.
+      const leftovers = expectations.splice(0);
+      if (leftovers.length > 0) {
+        const detail = leftovers.map((e) => `${e.command} ${e.argv.join(' ')}`).join('; ');
+        throw new Error(
+          `scriptedSpawn: ${leftovers.length} unconsumed expectation(s) at uninstall: ${detail}`,
+        );
+      }
     },
     expect(expectation) {
       expectations.push({
