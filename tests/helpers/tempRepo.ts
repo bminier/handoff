@@ -21,7 +21,7 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -166,11 +166,29 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
 }
 
 function isWithinRepoNamespace(linkedPath: string, repoPath: string): boolean {
-  // git on Windows reports paths with forward slashes while `repoPath`
-  // came from `node:path.join` and uses backslashes; normalise so the
-  // startsWith check doesn't false-negative on a legitimate sibling.
+  // Two canonicalisation hazards force a realpath on both sides:
+  //   - macOS: `os.tmpdir()` returns `/var/folders/...` but git stores the
+  //     resolved `/private/var/folders/...` (the /var → /private/var
+  //     symlink), so a literal startsWith false-negatives on legitimate
+  //     siblings.
+  //   - Windows: GitHub's runner home is `C:\Users\RUNNER~1\...` (8.3
+  //     short name) under `os.tmpdir()`, while git reports the long-name
+  //     form. Same false-negative.
+  // Then normalise separators so Windows backslashes vs git's forward
+  // slashes don't sneak a false-negative past realpath.
   const norm = (p: string) => p.replace(/\\/g, '/');
-  return norm(linkedPath).startsWith(`${norm(repoPath)}-`);
+  let canonicalLinked: string;
+  let canonicalRepo: string;
+  try {
+    canonicalLinked = norm(realpathSync(linkedPath));
+    canonicalRepo = norm(realpathSync(repoPath));
+  } catch {
+    // If either path can't be resolved (already deleted, broken symlink),
+    // the conservative answer is "skip removal" — better to leak than to
+    // rm something we couldn't verify.
+    return false;
+  }
+  return canonicalLinked.startsWith(`${canonicalRepo}-`);
 }
 
 function listLinkedWorktrees(repoPath: string): readonly string[] {
