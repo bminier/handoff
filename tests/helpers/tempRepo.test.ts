@@ -39,6 +39,21 @@ describe('tempRepo', () => {
     );
   });
 
+  it('honours an initialBranch override', () => {
+    // Documented contract — without this test, a regression in the
+    // `symbolic-ref HEAD refs/heads/<name>` setup would only surface when a
+    // future test happened to ask for a non-default branch.
+    const custom = createTempRepo({
+      tmpPrefix: 'handoff-temprepo-initbr-',
+      initialBranch: 'trunk',
+    });
+    try {
+      expect(custom.git(['symbolic-ref', '--short', 'HEAD']).stdout.trim()).toBe('trunk');
+    } finally {
+      custom.cleanup();
+    }
+  });
+
   it('drives src/git.ts through process.chdir into the temp repo', async () => {
     // git.ts uses the process cwd when shelling out, so this is the wiring
     // pattern the per-module tests in #14 will copy.
