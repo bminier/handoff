@@ -12,7 +12,7 @@ directly with `bun:test`. I/O modules (`run`, `git`, `github`, `cleanup`,
 | `run.ts`, `github.ts`                                        | **`scriptedSpawn`**      | The contract is the argv we hand to the subprocess. Fake the spawn, assert call shape and parsing of canned stdout.                                                                                   |
 | `git.ts` (worktree create/remove, branch ops)                | **`tempRepo`**           | The contract is git's actual behaviour. Spinning up a real throwaway repo costs ~50 ms and catches divergence a hand-rolled fake would miss.                                                          |
 | A module with multiple I/O collaborators (e.g. `cleanup.ts`) | **dependency injection** | If a module depends on several I/O wrappers, give it an optional `deps?` param and pass plain in-memory fakes. See `src/cleanup.ts` + `tests/cleanup.test.ts`.                                        |
-| `terminal.ts` spawn path                                     | **dependency injection** | `openTerminal` shells out via its own `spawnDetached` (not `run.ts`), so `scriptedSpawn` doesn't reach it. The terminal-test issue (#16) will add a `spawn?` param on `openTerminal` and pass a fake. |
+| `terminal.ts` spawn path                                     | **dependency injection** | `openTerminal` shells out via its own `spawnDetached` (not `run.ts`), so `scriptedSpawn` doesn't reach it. The terminal-test issue (#14) will add a `spawn?` param on `openTerminal` and pass a fake. |
 
 Don't reach for `mock.module(...)` to fake `git.ts`/`github.ts`/`run.ts`. Bun's
 `mock.module` is **process-global** for the whole `bun test` run, so any other
