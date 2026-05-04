@@ -38,7 +38,7 @@ Tests live in `tests/`. Pure modules are covered directly with `bun:test`. I/O m
 
 1. Read `docs/requirements.md` and `docs/implementation-plan.v0.1.0.md` first.
 2. Add tests for any pure-function change.
-3. Run `bun test && bun run typecheck && bun run lint` before committing.
+3. Run `bun run test && bun run typecheck && bun run lint` before committing. Use `bun run test` (not bare `bun test`) so the package.json `--max-concurrency=1` pin applies — the I/O-test fixtures rely on it.
 4. Cross-platform changes (terminal spawn, runner scripts, paths) need a note in the PR about which platforms you smoke-tested.
 
 ## How to add a new adapter

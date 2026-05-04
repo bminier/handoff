@@ -182,11 +182,15 @@ Configuration lives at `~/.handoff/config.json`.
 
 ```bash
 bun install
-bun test
+bun run test
 bun run typecheck
 bun run lint
 bun run format
 ```
+
+The `test` script pins `--max-concurrency=1` because the I/O-test fixtures
+(`tests/helpers/`) lean on Bun's default single-threaded execution; bare
+`bun test` would bypass that pin. See `tests/README.md` for the rationale.
 
 Pre-commit runs prettier + eslint via husky + lint-staged.
 

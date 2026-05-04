@@ -126,17 +126,22 @@ using the strict matcher.
 
 ## Concurrency assumption
 
-These fixtures lean on Bun running tests serially by default — within a
-file and across files. `process.chdir` (in the `tempRepo` pattern) and
-the module-level `spawnImpl` in `src/run.ts` are both process-global,
-and a sibling test running concurrently would observe the wrong cwd or
-the wrong spawn. None of that fires today because `bun test` is serial
-unless someone passes `--concurrent` / `--max-concurrency` or marks
-individual tests `test.concurrent()`.
+These fixtures lean on Bun running tests serially. `process.chdir` (in
+the `tempRepo` pattern) and the module-level `spawnImpl` in `src/run.ts`
+are both process-global, and a sibling test running concurrently would
+observe the wrong cwd or the wrong spawn.
 
-If we ever opt in to concurrency, the fix is structural: thread `cwd`
+That assumption is pinned in `package.json`: the `test` script runs
+`bun test --max-concurrency=1`, which caps even `test.concurrent()`
+markers at one in-flight test. CI invokes `bun run test` so the flag
+applies there too. **Run `bun run test` locally rather than bare `bun
+test`** — the bare form falls back to Bun's default (currently 20
+concurrent) and would bypass the pin if a future contributor adds
+`test.concurrent()`.
+
+If we ever want real concurrency, the fix is structural: thread `cwd`
 through every `git.ts` function (it already accepts `cwd` at the `run()`
 boundary, so this is propagation, not new plumbing) and lift the spawn
-seam onto a per-fixture context instead of a module global. That's out
-of scope for this PR — flagged here so the future flip isn't a
-silent-flake landmine.
+seam onto a per-fixture context instead of a module global. Out of scope
+for this PR — flagged here so the future flip isn't a silent-flake
+landmine.
