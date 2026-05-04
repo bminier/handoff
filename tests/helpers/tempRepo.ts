@@ -203,22 +203,24 @@ function isWithinRepoNamespace(linkedPath: string, repoPath: string): boolean {
   // Bun on Windows CI didn't resolve the short name even when called
   // explicitly, which broke the previous full-path predicate.
   //
-  // The basename predicate trades off: it covers the realistic threat
-  // (a typo or accidentally absolute path the test never meant to
-  // register — those will have an unrelated basename and be left alone)
-  // but it does *not* cover a test that deliberately registers a
-  // worktree at `<some-other-dir>/<repo-basename>-<anything>`. Such a
-  // path shares the random-suffix basename and would be removed by
-  // cleanup. We accept that gap because (a) constructing such a path
-  // requires the test to read `repo.path`, splice its basename into a
-  // foreign directory, and pass the result to `repo.git(['worktree',
-  // 'add', ...])` — i.e. it's deliberate, not accidental — and (b) any
-  // path that does match the pattern is almost certainly mimicking the
-  // createWorktree contract, where removing it is the right answer.
+  // The basename predicate trades off:
+  //   - Covers the realistic threat — a typo or accidentally absolute
+  //     path the test never meant to register will have an unrelated
+  //     basename and be left alone.
+  //   - Does *not* cover a test that deliberately constructs a path of
+  //     the form `<some-other-dir>/<repo-basename>-<anything>` and
+  //     registers it with `repo.git(['worktree', 'add', ...])`. The
+  //     basename matches, so cleanup *will* rm it even though the
+  //     directory part is outside the temp repo's parent.
   //
-  // If a future test legitimately needs to register a worktree outside
-  // the namespace, the test owns the cleanup of that path itself; this
-  // helper only sweeps what looks like its own.
+  // We accept that second gap because (a) constructing such a path
+  // requires the test to read `repo.path` and splice its random-suffix
+  // basename into a foreign directory — that's deliberate, not
+  // accidental, and (b) any path that does match the pattern is
+  // mimicking the createWorktree contract closely enough that removing
+  // it is the right answer for the common case. A future test that
+  // legitimately needs an out-of-namespace worktree should manage that
+  // path's lifecycle itself.
   return basename(linkedPath).startsWith(`${basename(repoPath)}-`);
 }
 
