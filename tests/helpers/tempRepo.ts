@@ -134,15 +134,29 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
     },
     cleanup() {
       if (cleanedUp) return;
-      cleanedUp = true;
       // git.ts's createWorktree puts linked worktrees as *siblings* of the
       // repo root (see worktreePath in src/branch.ts), so rm'ing repo.path
-      // alone would leak any worktree the test added. Enumerate them via
-      // `git worktree list` and scrub each before the main dir.
+      // alone would leak any worktree the test added. Route removal through
+      // `git worktree remove --force` rather than raw rmSync of whatever
+      // path git happens to report — a test that called `repo.git(['worktree',
+      // 'add', '/some/important/dir', ...])` could otherwise turn this
+      // helper into a recursive deleter for unrelated directories. Letting
+      // git handle it constrains deletion to paths git itself registered
+      // (and unregisters them from the repo's worktree list as a bonus).
       for (const linkedPath of listLinkedWorktrees(path)) {
-        rmSync(linkedPath, { recursive: true, force: true });
+        try {
+          runGit(path, ['worktree', 'remove', '--force', linkedPath]);
+        } catch {
+          // Best-effort: worktree dir may already be gone, locked, or in
+          // some partially-broken state. Don't throw out of cleanup.
+        }
       }
       rmSync(path, { recursive: true, force: true });
+      // Mark cleaned-up only after rmSync succeeds — if it throws (Windows
+      // EBUSY/EPERM, antivirus holding a handle), a subsequent retry from
+      // the same `repo.cleanup()` reference can still attempt the work
+      // instead of becoming a silent no-op.
+      cleanedUp = true;
     },
   };
 }
