@@ -106,9 +106,35 @@ The helper uses `git symbolic-ref HEAD refs/heads/<name>` (works on `git ≥
 
 ## Mixing fixtures
 
-`scriptedSpawn` and `tempRepo` should not be installed in the same test.
-`scriptedSpawn.install()` replaces the spawn `run()` uses, and `tempRepo`
-needs the real one to drive `git`. If a test needs both — for example,
-fake-`gh` plus real-`git` — that's a sign the module under test is doing
-two different I/O things; consider splitting it before reaching for a
-hybrid harness.
+For per-module unit tests, `scriptedSpawn` and `tempRepo` should not be
+installed together. `scriptedSpawn.install()` replaces the spawn `run()`
+uses, and `tempRepo` needs the real one to drive `git`. If a single
+module's test needs both, that's a sign the module is doing two different
+I/O things — split it before reaching for a hybrid harness.
+
+CLI-level integration tests (#15) are the documented exception: `cli.ts`
+fans out to both `fetchIssue` (gh) and `createWorktree` (git) in the same
+flow, so a happy-path test inherently needs fake-`gh` + real-`git`. The
+infra in this PR doesn't ship a hybrid harness yet; #15 will add one. The
+plan is a `passthrough?: (command, args) => boolean` option on
+`scriptedSpawn` so calls that match the predicate fall through to the
+real `spawn`. That keeps the "fake gh, real git" wiring expressible in
+one test without leaking back into per-module tests, which should keep
+using the strict matcher.
+
+## Concurrency assumption
+
+These fixtures lean on Bun running tests serially by default — within a
+file and across files. `process.chdir` (in the `tempRepo` pattern) and
+the module-level `spawnImpl` in `src/run.ts` are both process-global,
+and a sibling test running concurrently would observe the wrong cwd or
+the wrong spawn. None of that fires today because `bun test` is serial
+unless someone passes `--concurrent` / `--max-concurrency` or marks
+individual tests `test.concurrent()`.
+
+If we ever opt in to concurrency, the fix is structural: thread `cwd`
+through every `git.ts` function (it already accepts `cwd` at the `run()`
+boundary, so this is propagation, not new plumbing) and lift the spawn
+seam onto a per-fixture context instead of a module global. That's out
+of scope for this PR — flagged here so the future flip isn't a
+silent-flake landmine.
