@@ -103,6 +103,16 @@ describe('tempRepo', () => {
     }
   });
 
+  it('rejects a tmpPrefix that would escape os.tmpdir()', () => {
+    // path.join('/tmp', '../foo-') collapses to '/foo-' — a fixture
+    // created under that prefix would land outside tmpdir entirely and
+    // cleanup would later rmSync it. The guard rejects the prefix before
+    // mkdtempSync even runs.
+    expect(() => createTempRepo({ tmpPrefix: '../foo-' })).toThrow(/path separators/);
+    expect(() => createTempRepo({ tmpPrefix: 'a/b-' })).toThrow(/path separators/);
+    expect(() => createTempRepo({ tmpPrefix: 'a\\b-' })).toThrow(/path separators/);
+  });
+
   it('does not leak a temp dir if setup fails', () => {
     // Dedicated prefix isolates from sibling tempRepo callers in this run;
     // the before-snapshot then isolates from stale `*-leakcheck-*` dirs

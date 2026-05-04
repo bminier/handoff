@@ -87,7 +87,19 @@ function runGit(cwd: string, args: readonly string[]): GitResult {
 
 export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
   const initialBranch = opts.initialBranch ?? 'dev';
-  const path = mkdtempSync(join(tmpdir(), opts.tmpPrefix ?? DEFAULT_TMP_PREFIX));
+  const tmpPrefix = opts.tmpPrefix ?? DEFAULT_TMP_PREFIX;
+  // mkdtempSync joins the prefix with tmpdir() and creates the result. A
+  // prefix containing path separators (e.g. `'../foo-'`) would escape
+  // tmpdir entirely, and cleanup would later rmSync the external path —
+  // path.join collapses the `..` segments. Test code is the only caller,
+  // so this is guarding against typos (and only typos), but a 3-line
+  // check beats reasoning about path-traversal blast radius.
+  if (/[\\/]/.test(tmpPrefix)) {
+    throw new Error(
+      `tmpPrefix must be a single basename segment with no path separators; got: ${tmpPrefix}`,
+    );
+  }
+  const path = mkdtempSync(join(tmpdir(), tmpPrefix));
   let cleanedUp = false;
 
   // If any setup step throws (missing git, bad ref name, etc.) the caller
