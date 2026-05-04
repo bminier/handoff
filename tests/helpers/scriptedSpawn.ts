@@ -20,9 +20,8 @@
  */
 
 import { EventEmitter } from 'node:events';
-import type { ChildProcess } from 'node:child_process';
 
-import { __setSpawnForTesting } from '../../src/run.ts';
+import { __setSpawnForTesting, type PipedChildProcess } from '../../src/run.ts';
 
 export interface ScriptedResponse {
   stdout?: string;
@@ -92,7 +91,7 @@ function findExpectation(
   return undefined;
 }
 
-function fakeChild(response: ScriptedResponse): ChildProcess {
+function fakeChild(response: ScriptedResponse): PipedChildProcess {
   const child = new EventEmitter();
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
@@ -118,10 +117,10 @@ function fakeChild(response: ScriptedResponse): ChildProcess {
     child.emit('close', code, response.signal ?? null);
   });
 
-  return Object.assign(child, { stdout, stderr }) as unknown as ChildProcess;
+  return Object.assign(child, { stdout, stderr }) as unknown as PipedChildProcess;
 }
 
-function unmatchedChild(command: string, args: readonly string[]): ChildProcess {
+function unmatchedChild(command: string, args: readonly string[]): PipedChildProcess {
   const child = new EventEmitter();
   const stdout = new EventEmitter();
   const stderr = new EventEmitter();
@@ -136,7 +135,7 @@ function unmatchedChild(command: string, args: readonly string[]): ChildProcess 
     );
   });
 
-  return Object.assign(child, { stdout, stderr }) as unknown as ChildProcess;
+  return Object.assign(child, { stdout, stderr }) as unknown as PipedChildProcess;
 }
 
 export function createScriptedSpawn(): ScriptedSpawn {

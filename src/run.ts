@@ -1,4 +1,5 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import type { Readable } from 'node:stream';
 
 export interface RunResult {
   stdout: string;
@@ -6,9 +7,32 @@ export interface RunResult {
   exitCode: number;
 }
 
-type SpawnFn = (command: string, args: readonly string[], options: SpawnOptions) => ChildProcess;
+/**
+ * `run()` always launches with `stdio: ['ignore', 'pipe', 'pipe']`, so both
+ * stdout and stderr are guaranteed at runtime. Surface that in the type so
+ * scripted-spawn fakes have to provide piped streams (compile error, not a
+ * mid-test `TypeError` on `.on('data', ...)`) and `run()` itself can drop
+ * the non-null assertions.
+ */
+export type PipedChildProcess = Omit<ChildProcess, 'stdout' | 'stderr'> & {
+  stdout: Readable;
+  stderr: Readable;
+};
 
-let spawnImpl: SpawnFn = nodeSpawn;
+type SpawnFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => PipedChildProcess;
+
+const pipedNodeSpawn: SpawnFn = (command, args, options) => {
+  // Narrow `node:child_process.spawn`'s nullable streams at the boundary —
+  // we always pass `stdio: ['ignore', 'pipe', 'pipe']` below, so the cast
+  // is safe at runtime.
+  return nodeSpawn(command, args, options) as PipedChildProcess;
+};
+
+let spawnImpl: SpawnFn = pipedNodeSpawn;
 
 /**
  * @internal Test-only injection seam. Replaces the spawn used by `run()` and
@@ -68,14 +92,10 @@ export function run(
 
     let stdout = '';
     let stderr = '';
-    // stdio: ['ignore', 'pipe', 'pipe'] guarantees both streams are present at
-    // runtime. The injectable SpawnFn typing widens to ChildProcess, where
-    // stdout/stderr are nullable, so assert here rather than every test fake
-    // having to retype the return.
-    child.stdout!.on('data', (chunk: Buffer) => {
+    child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString('utf8');
     });
-    child.stderr!.on('data', (chunk: Buffer) => {
+    child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString('utf8');
     });
     child.on('error', reject);
