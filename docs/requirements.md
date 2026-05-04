@@ -68,7 +68,7 @@
 ## Non-functional requirements
 
 - **Language**: TypeScript, run via `bun`. No transpile step for the CLI; published as source + `package.json#bin` entry running `bun src/cli.ts`.
-- **Cross-platform**: must work on Windows, macOS, Linux. CI runs on Ubuntu only for v0.1.0 (Windows-specific paths covered by unit tests, not E2E).
+- **Cross-platform**: must work on Windows, macOS, Linux. CI runs the lint/typecheck/test gauntlet on `ubuntu-latest`, `macos-latest`, and `windows-latest`; format-check and lint are gated to ubuntu since their output is invariant. Windows-specific path handling is exercised by unit tests on the Windows runner, not by E2E.
 - **Tests**: pure functions (slug, args, prompt rendering, branch naming) covered directly with `bun:test`. I/O modules have fixtures available under `tests/helpers/` (see `tests/README.md`); `cleanup` and `run` are wired up, the per-module tests for `git`/`github`/`terminal` spawn are in flight (#14). Cross-CLI integration tests still out of scope until #15. Run the suite with `bun run test` — the `--max-concurrency=1` pin matters; see `tests/README.md` for why.
 - **Performance**: a single handoff completes its setup in under 5 seconds (excluding `gh` network latency).
 - **Security**:
@@ -84,7 +84,6 @@
 - Codex Cloud / Copilot remote agents (only local CLIs).
 - Auto-detecting tool capability and routing (e.g., "give to whichever agent is idle").
 - Containerized / VM-isolated worktrees.
-- Windows CI.
 
 ## Answer to the open question
 
