@@ -104,16 +104,21 @@ describe('tempRepo', () => {
   });
 
   it('rejects a tmpPrefix that would escape os.tmpdir()', () => {
-    // Three escape modes the guard must catch:
+    // Four escape modes the guard must catch (each broke a previous
+    // iteration of this check):
     //   - separators: would land the fixture in a sub-tree of tmpdir
+    //   - trailing separator (`'nested/'`): a dirname-equals-tmpdir check
+    //     passes here because dirname strips the trailing separator, but
+    //     mkdtemp still creates the fixture under `<tmpdir>/nested/`
     //   - '.': collapses to tmpdir, so mkdtemp creates `<tmpdir>XXXXXX`
     //     (a sibling of tmpdir, not a child)
     //   - '..': escapes to tmpdir's parent
-    // All three would let cleanup() later rmSync something we don't own.
-    expect(() => createTempRepo({ tmpPrefix: '../foo-' })).toThrow(/outside os\.tmpdir/);
-    expect(() => createTempRepo({ tmpPrefix: 'a/b-' })).toThrow(/outside os\.tmpdir/);
-    expect(() => createTempRepo({ tmpPrefix: '.' })).toThrow(/outside os\.tmpdir/);
-    expect(() => createTempRepo({ tmpPrefix: '..' })).toThrow(/outside os\.tmpdir/);
+    // All four would let cleanup() later rmSync something we don't own.
+    expect(() => createTempRepo({ tmpPrefix: '../foo-' })).toThrow(/A-Za-z0-9/);
+    expect(() => createTempRepo({ tmpPrefix: 'a/b-' })).toThrow(/A-Za-z0-9/);
+    expect(() => createTempRepo({ tmpPrefix: 'nested/' })).toThrow(/A-Za-z0-9/);
+    expect(() => createTempRepo({ tmpPrefix: '.' })).toThrow(/A-Za-z0-9/);
+    expect(() => createTempRepo({ tmpPrefix: '..' })).toThrow(/A-Za-z0-9/);
   });
 
   it('does not leak a temp dir if setup fails', () => {

@@ -23,7 +23,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join } from 'node:path';
 
 export interface TempRepoOptions {
   /** Initial branch name. Defaults to `'dev'` to match this repo's convention. */
@@ -103,23 +103,21 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
   const initialBranch = opts.initialBranch ?? 'dev';
   const tmpPrefix = opts.tmpPrefix ?? DEFAULT_TMP_PREFIX;
   // mkdtempSync joins the prefix with tmpdir() and creates a dir at
-  // `<joined><6-random-chars>`. The escape modes are:
-  //   - separators: `'a/b-'` lands in `tmpdir/a`, not tmpdir
-  //   - `'.'`: collapses to tmpdir itself, so mkdtemp creates
-  //     `<tmpdir>XXXXXX` — a *sibling* of tmpdir, not a child
-  //   - `'..'`: escapes to tmpdir's parent
-  // and cleanup would later rmSync that out-of-namespace path.
-  //
-  // A separator-only check missed the `.`/`..` cases. Use the same
-  // invariant for all of them: `dirname(joined)` must equal tmpdir,
-  // i.e. mkdtemp's output lands directly under it.
-  const candidate = join(tmpdir(), tmpPrefix);
-  if (resolve(dirname(candidate)) !== resolve(tmpdir())) {
+  // `<joined><6-random-chars>`. We've now hit three distinct escape
+  // modes — separators (`'a/b-'`), trailing separators (`'nested/'`,
+  // which collapses past dirname-equals-tmpdir checks), and dot
+  // segments (`'.'` resolves to tmpdir itself, `'..'` to its parent).
+  // Each fix-by-pattern attempt missed at least one. Replace with a
+  // strict allowlist: alphanumerics, underscore, hyphen. Test fixtures
+  // don't need anything richer, and any character class outside this
+  // set is either a separator, a dot segment, or trivially weird —
+  // safer to reject all of them than to keep enumerating escape modes.
+  if (!/^[A-Za-z0-9_-]+$/.test(tmpPrefix)) {
     throw new Error(
-      `tmpPrefix would create a fixture outside os.tmpdir(): ${tmpPrefix} → ${candidate}`,
+      `tmpPrefix must match /^[A-Za-z0-9_-]+$/ to stay safely inside os.tmpdir(); got: ${JSON.stringify(tmpPrefix)}`,
     );
   }
-  const path = mkdtempSync(candidate);
+  const path = mkdtempSync(join(tmpdir(), tmpPrefix));
   let cleanedUp = false;
 
   // If any setup step throws (missing git, bad ref name, etc.) the caller
