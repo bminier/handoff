@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { cleanup, type CleanupDeps } from '../src/cleanup.ts';
 import { GhError } from '../src/github.ts';
@@ -220,5 +223,62 @@ describe('cleanup — production wiring (no opts.deps)', () => {
     expect(result.status).toBe('unknown');
     expect(result.message).toContain('Could not check PR status');
     expect(result.message).toContain('gh test stub: not authenticated');
+  });
+
+  it('drives the merged-PR happy path through every defaultDeps entry', async () => {
+    // The error-path test above only exercises `defaultDeps.prMergedFor`.
+    // A swap of `branchExists`/`removeWorktree`/`deleteBranch`/`existsSync`
+    // in the defaults table would still slip through. This case wires up
+    // a real on-disk worktree directory so the production `existsSync`
+    // returns true, then registers each gh/git argv the merged path is
+    // expected to produce — pinning all five wires by argv shape, not
+    // just the prMergedFor slot.
+    const parent = mkdtempSync(join(tmpdir(), 'handoff-cleanup-defaults-'));
+    const repoRoot = join(parent, 'myrepo');
+    const branch = 'claude/issue-9';
+    const worktreeDir = join(parent, 'myrepo-issue-9');
+    mkdirSync(worktreeDir);
+    try {
+      // gh pr list → returns a single merged PR → prMergedFor returns true.
+      spawn.expectGh(
+        ['pr', 'list', '--head', branch, '--state', 'merged', '--json', 'number', '--limit', '1'],
+        [{ number: 9 }],
+      );
+      // git worktree remove --force <path>
+      spawn.expect({
+        command: 'git',
+        argv: ['worktree', 'remove', '--force', worktreeDir],
+        response: { stdout: '' },
+      });
+      // git show-ref --verify --quiet refs/heads/<branch> → success → branchExists=true
+      spawn.expect({
+        command: 'git',
+        argv: ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`],
+        response: { stdout: '' },
+      });
+      // git branch -D <branch>
+      spawn.expect({
+        command: 'git',
+        argv: ['branch', '-D', branch],
+        response: { stdout: '' },
+      });
+
+      const result = await cleanup(branch, { repoRoot });
+
+      expect(result.status).toBe('removed');
+      expect(result.message).toContain(`Removed worktree ${worktreeDir}`);
+      expect(result.message).toContain(`deleted branch ${branch}`);
+      // All four subprocesses were issued in the order cleanup.ts walks
+      // them: gh first, then worktree remove (gated by existsSync), then
+      // branchExists, then deleteBranch.
+      expect(spawn.calls.map((c) => `${c.command} ${c.args.join(' ')}`)).toEqual([
+        `gh pr list --head ${branch} --state merged --json number --limit 1`,
+        `git worktree remove --force ${worktreeDir}`,
+        `git show-ref --verify --quiet refs/heads/${branch}`,
+        `git branch -D ${branch}`,
+      ]);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   });
 });
