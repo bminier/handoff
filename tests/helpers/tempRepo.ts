@@ -21,9 +21,9 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
 export interface TempRepoOptions {
   /** Initial branch name. Defaults to `'dev'` to match this repo's convention. */
@@ -166,29 +166,22 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
 }
 
 function isWithinRepoNamespace(linkedPath: string, repoPath: string): boolean {
-  // Two canonicalisation hazards force a realpath on both sides:
-  //   - macOS: `os.tmpdir()` returns `/var/folders/...` but git stores the
-  //     resolved `/private/var/folders/...` (the /var → /private/var
-  //     symlink), so a literal startsWith false-negatives on legitimate
-  //     siblings.
-  //   - Windows: GitHub's runner home is `C:\Users\RUNNER~1\...` (8.3
-  //     short name) under `os.tmpdir()`, while git reports the long-name
-  //     form. Same false-negative.
-  // Then normalise separators so Windows backslashes vs git's forward
-  // slashes don't sneak a false-negative past realpath.
-  const norm = (p: string) => p.replace(/\\/g, '/');
-  let canonicalLinked: string;
-  let canonicalRepo: string;
-  try {
-    canonicalLinked = norm(realpathSync(linkedPath));
-    canonicalRepo = norm(realpathSync(repoPath));
-  } catch {
-    // If either path can't be resolved (already deleted, broken symlink),
-    // the conservative answer is "skip removal" — better to leak than to
-    // rm something we couldn't verify.
-    return false;
-  }
-  return canonicalLinked.startsWith(`${canonicalRepo}-`);
+  // Compare basenames rather than full paths. The directory parts are a
+  // platform-canonicalisation minefield (macOS /var ↔ /private/var; Windows
+  // RUNNER~1 ↔ runneradmin short/long names; backslashes vs git's forward
+  // slashes), and realpath resolution differs across runtimes — Bun on
+  // Windows CI didn't resolve the short name even when called explicitly,
+  // which broke the previous full-path predicate.
+  //
+  // Basenames sidestep all of that. createWorktree puts worktrees at
+  // `<repoRoot>-<branch-tail>` (see worktreePath in src/branch.ts), so the
+  // legitimate sibling's basename starts with `<repo-basename>-`. The
+  // repo's basename is `<prefix><6-random-chars>` (`mkdtempSync`), so the
+  // collision risk against an unrelated path that happens to share that
+  // exact basename is vanishingly small — and any path that *does* match
+  // that basename pattern was almost certainly created by createWorktree
+  // off this fixture, so removing it is the right answer anyway.
+  return basename(linkedPath).startsWith(`${basename(repoPath)}-`);
 }
 
 function listLinkedWorktrees(repoPath: string): readonly string[] {
