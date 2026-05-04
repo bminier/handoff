@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
 import { branchExists } from '../../src/git.ts';
 import { createTempRepo, type TempRepo } from './tempRepo.ts';
@@ -52,6 +53,20 @@ describe('tempRepo', () => {
     repo.cleanup();
     expect(existsSync(path)).toBe(false);
     expect(() => repo.cleanup()).not.toThrow();
+  });
+
+  it('cleanup also removes linked worktrees that landed as siblings', () => {
+    // Mimic what src/git.ts createWorktree does: register a sibling worktree
+    // off the temp repo. cleanup() should reach it via `git worktree list`,
+    // not just rm the main repo and leave the sibling on disk.
+    const sibling = join(dirname(repo.path), `${repo.path.split(/[\\/]/).pop()}-feature-x`);
+    repo.git(['worktree', 'add', sibling, 'feature/x']);
+    expect(existsSync(sibling)).toBe(true);
+
+    repo.cleanup();
+
+    expect(existsSync(repo.path)).toBe(false);
+    expect(existsSync(sibling)).toBe(false);
   });
 
   it('does not leak a temp dir if setup fails', () => {

@@ -135,7 +135,41 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
     cleanup() {
       if (cleanedUp) return;
       cleanedUp = true;
+      // git.ts's createWorktree puts linked worktrees as *siblings* of the
+      // repo root (see worktreePath in src/branch.ts), so rm'ing repo.path
+      // alone would leak any worktree the test added. Enumerate them via
+      // `git worktree list` and scrub each before the main dir.
+      for (const linkedPath of listLinkedWorktrees(path)) {
+        rmSync(linkedPath, { recursive: true, force: true });
+      }
       rmSync(path, { recursive: true, force: true });
     },
   };
+}
+
+function listLinkedWorktrees(repoPath: string): readonly string[] {
+  // Best-effort — cleanup must never throw, so if the repo is in some half-
+  // wedged state we just skip the sibling sweep and let rm of repo.path
+  // handle whatever's left under the main worktree.
+  let stdout: string;
+  try {
+    stdout = runGit(repoPath, ['worktree', 'list', '--porcelain']).stdout;
+  } catch {
+    return [];
+  }
+  const linked: string[] = [];
+  let seenMain = false;
+  for (const line of stdout.split('\n')) {
+    if (!line.startsWith('worktree ')) continue;
+    // `git worktree list` always emits the main worktree first; skip it
+    // rather than comparing paths (Windows backslashes vs git's forward
+    // slashes, macOS /var vs /private/var would all need normalising).
+    if (!seenMain) {
+      seenMain = true;
+      continue;
+    }
+    const wt = line.slice('worktree '.length).trim();
+    if (wt) linked.push(wt);
+  }
+  return linked;
 }
