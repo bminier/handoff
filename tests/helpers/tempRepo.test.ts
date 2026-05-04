@@ -103,6 +103,28 @@ describe('tempRepo', () => {
     }
   });
 
+  it('cleanup leaves in-suite paths that do not match the createWorktree pattern', () => {
+    // The realpath-under-SUITE_ROOT check alone is too broad: another
+    // fixture's repo (or any unrelated dir) under the same per-process
+    // root would be a delete candidate just by being in the same run.
+    // The namespace also requires the createWorktree `<repo.path>-<tail>`
+    // shape — paths that happen to live under SUITE_ROOT but don't match
+    // that pattern must be left alone.
+    const root = __getSuiteRootForTesting();
+    const stranger = mkdtempSync(join(root, 'handoff-temprepo-stranger-'));
+    try {
+      repo.git(['worktree', 'add', stranger, 'fix/y']);
+      expect(existsSync(stranger)).toBe(true);
+
+      repo.cleanup();
+
+      expect(existsSync(repo.path)).toBe(false);
+      expect(existsSync(stranger)).toBe(true);
+    } finally {
+      rmSync(stranger, { recursive: true, force: true });
+    }
+  });
+
   it('rejects a tmpPrefix that would escape the suite root', () => {
     // Four escape modes the guard must catch (each broke a previous
     // iteration of this check):

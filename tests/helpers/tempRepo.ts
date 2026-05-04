@@ -73,7 +73,7 @@ process.on('exit', () => {
   }
 });
 
-function isUnderSuiteRoot(candidate: string): boolean {
+function isInRepoNamespace(candidate: string, repoPath: string): boolean {
   let resolved: string;
   try {
     resolved = realpathSync.native(candidate);
@@ -85,9 +85,18 @@ function isUnderSuiteRoot(candidate: string): boolean {
     // alone," which is the safe choice.
     return false;
   }
-  // Strict descendant — never SUITE_ROOT itself. The `process.on('exit')`
-  // handler owns the root; cleanup() only deletes *under* it.
-  return resolved.startsWith(SUITE_ROOT + sep);
+  // Two boundaries, both required:
+  //   1. Outer: must be under SUITE_ROOT. Defense in depth — if (2)
+  //      regresses, the realpath gate still blocks deletes outside the
+  //      per-process root.
+  //   2. Inner: must match `createWorktree`'s contract — a sibling at
+  //      `<repoPath>-<tail>` (see `src/branch.ts:worktreePath`). Without
+  //      this, a sibling test's repo or any unrelated dir under
+  //      SUITE_ROOT would be a delete candidate just by being in the
+  //      same process. The fixture only owns paths that match the
+  //      production worktreePath contract.
+  if (!resolved.startsWith(SUITE_ROOT + sep)) return false;
+  return resolved.startsWith(`${repoPath}-`);
 }
 
 /**
@@ -171,7 +180,12 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
       `tmpPrefix must match /^[A-Za-z0-9_-]+$/ to stay safely inside the suite root; got: ${JSON.stringify(tmpPrefix)}`,
     );
   }
-  const path = mkdtempSync(join(SUITE_ROOT, tmpPrefix));
+  // Canonicalise: mkdtemp returns the platform-native form (case, short
+  // names on Windows, /var↔/private/var on macOS). `git worktree list`
+  // emits its own canonicalisation, and the namespace check below
+  // realpaths each candidate before comparison — so the *base* it
+  // compares against (this `path`) has to be canonical too.
+  const path = realpathSync.native(mkdtempSync(join(SUITE_ROOT, tmpPrefix)));
   let cleanedUp = false;
 
   // If any setup step throws (missing git, bad ref name, etc.) the caller
@@ -222,20 +236,21 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
       // `<repo.path>-<branch-tail>` (see worktreePath in src/branch.ts),
       // so rm'ing repo.path alone would leak any worktree the test added.
       // We sweep them via `git worktree list --porcelain`, but every
-      // candidate is gated through `isUnderSuiteRoot` — `git worktree
-      // list` is untrusted input (a test can register an arbitrary
-      // absolute path), and the suite-root anchor is what stops a typo
-      // from turning this helper into a recursive deleter for some
-      // unrelated directory.
+      // candidate is gated through `isInRepoNamespace`: realpath under
+      // SUITE_ROOT *and* matching the `<repo.path>-<tail>` createWorktree
+      // pattern. `git worktree list` is untrusted input — a test can
+      // register an arbitrary absolute path, or even another fixture's
+      // path running in the same process — and only paths that match
+      // the production contract are this fixture's to delete.
       //
       // Earlier iterations routed this through `git worktree remove
       // --force`, but git's removal can fail (locked file, dir already
       // gone) and orphaned the worktree once we proceeded to rm the main
       // repo. Direct rmSync is more reliable (`force: true` no-ops on
-      // missing) and the suite-root gate gives us the path-safety
+      // missing) and the namespace gate gives us the path-safety
       // guarantee a basename predicate could not.
       for (const linkedPath of listLinkedWorktrees(path)) {
-        if (isUnderSuiteRoot(linkedPath)) {
+        if (isInRepoNamespace(linkedPath, path)) {
           rmSync(linkedPath, { recursive: true, force: true });
         }
       }
