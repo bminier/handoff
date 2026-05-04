@@ -69,7 +69,7 @@
 
 - **Language**: TypeScript, run via `bun`. No transpile step for the CLI; published as source + `package.json#bin` entry running `bun src/cli.ts`.
 - **Cross-platform**: must work on Windows, macOS, Linux. CI runs on Ubuntu only for v0.1.0 (Windows-specific paths covered by unit tests, not E2E).
-- **Tests**: pure functions (slug, args, prompt rendering, branch naming) covered by `bun test`. Integration tests for git/gh/terminal are out of scope for v0.1.0.
+- **Tests**: pure functions (slug, args, prompt rendering, branch naming) covered directly with `bun:test`; I/O modules (`run`, `git`, `github`, `cleanup`, `terminal` spawn) covered via the fixtures under `tests/helpers/` (see `tests/README.md`). Run the suite with `bun run test` (the `--max-concurrency=1` pin matters — see that README for why). Cross-CLI integration tests are still out of scope until #15.
 - **Performance**: a single handoff completes its setup in under 5 seconds (excluding `gh` network latency).
 - **Security**:
   - Never write secrets into PROMPT.md or branch names.
