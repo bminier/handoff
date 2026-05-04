@@ -67,6 +67,20 @@ function runGit(cwd: string, args: readonly string[]): GitResult {
     GIT_TERMINAL_PROMPT: '0',
     GIT_OPTIONAL_LOCKS: '0',
   };
+  // Scrub repo-selection env vars so a developer who has e.g. `GIT_DIR`
+  // exported in their shell doesn't have this fixture silently start
+  // operating on (and potentially deleting branches/worktrees in) their
+  // real repo. cwd plus an empty repo-selection environment leaves git no
+  // ambiguity about which repo it's working with.
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  delete env.GIT_INDEX_FILE;
+  delete env.GIT_COMMON_DIR;
+  delete env.GIT_OBJECT_DIRECTORY;
+  delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+  delete env.GIT_CEILING_DIRECTORIES;
+  delete env.GIT_DISCOVERY_ACROSS_FILESYSTEM;
+  delete env.GIT_NAMESPACE;
   const result = spawnSync('git', args as string[], {
     cwd,
     env,
