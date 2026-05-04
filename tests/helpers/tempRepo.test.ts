@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -82,6 +82,25 @@ describe('tempRepo', () => {
 
     expect(existsSync(repo.path)).toBe(false);
     expect(existsSync(sibling)).toBe(false);
+  });
+
+  it('cleanup does not rm worktree paths outside the repo namespace', () => {
+    // A test that registered a worktree at an arbitrary path (rogue or
+    // typo'd absolute path) must not have its target deleted by cleanup.
+    // Stand up an unrelated temp dir, register it as a worktree on the
+    // fixture, and assert cleanup leaves it intact.
+    const outsider = mkdtempSync(join(tmpdir(), 'handoff-temprepo-outsider-'));
+    try {
+      repo.git(['worktree', 'add', outsider, 'feature/x']);
+      expect(existsSync(outsider)).toBe(true);
+
+      repo.cleanup();
+
+      expect(existsSync(repo.path)).toBe(false);
+      expect(existsSync(outsider)).toBe(true);
+    } finally {
+      rmSync(outsider, { recursive: true, force: true });
+    }
   });
 
   it('does not leak a temp dir if setup fails', () => {

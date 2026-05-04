@@ -134,21 +134,25 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
     },
     cleanup() {
       if (cleanedUp) return;
-      // git.ts's createWorktree puts linked worktrees as *siblings* of the
-      // repo root (see worktreePath in src/branch.ts), so rm'ing repo.path
-      // alone would leak any worktree the test added. Route removal through
-      // `git worktree remove --force` rather than raw rmSync of whatever
-      // path git happens to report — a test that called `repo.git(['worktree',
-      // 'add', '/some/important/dir', ...])` could otherwise turn this
-      // helper into a recursive deleter for unrelated directories. Letting
-      // git handle it constrains deletion to paths git itself registered
-      // (and unregisters them from the repo's worktree list as a bonus).
+      // git.ts's createWorktree puts linked worktrees at
+      // `<repo.path>-<branch-tail>` (see worktreePath in src/branch.ts),
+      // so rm'ing repo.path alone would leak any worktree the test added.
+      // Constrain removal to that namespace via a name predicate: a test
+      // that called `repo.git(['worktree', 'add', '/some/unrelated/dir',
+      // ...])` could otherwise turn this helper into a recursive deleter
+      // for an arbitrary path. Out-of-namespace registrations are left
+      // for the test to own.
+      //
+      // Earlier iterations routed this through `git worktree remove
+      // --force` for the same safety reason, but git's removal can fail
+      // (locked file, dir already gone) — which then orphaned the
+      // worktree the moment we proceeded to rm the main repo, with no
+      // way for a retry to discover it. Direct rmSync is more reliable
+      // (`force: true` no-ops on missing) and the predicate gives us the
+      // same path-safety guarantee.
       for (const linkedPath of listLinkedWorktrees(path)) {
-        try {
-          runGit(path, ['worktree', 'remove', '--force', linkedPath]);
-        } catch {
-          // Best-effort: worktree dir may already be gone, locked, or in
-          // some partially-broken state. Don't throw out of cleanup.
+        if (isWithinRepoNamespace(linkedPath, path)) {
+          rmSync(linkedPath, { recursive: true, force: true });
         }
       }
       rmSync(path, { recursive: true, force: true });
@@ -159,6 +163,14 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
       cleanedUp = true;
     },
   };
+}
+
+function isWithinRepoNamespace(linkedPath: string, repoPath: string): boolean {
+  // git on Windows reports paths with forward slashes while `repoPath`
+  // came from `node:path.join` and uses backslashes; normalise so the
+  // startsWith check doesn't false-negative on a legitimate sibling.
+  const norm = (p: string) => p.replace(/\\/g, '/');
+  return norm(linkedPath).startsWith(`${norm(repoPath)}-`);
 }
 
 function listLinkedWorktrees(repoPath: string): readonly string[] {
