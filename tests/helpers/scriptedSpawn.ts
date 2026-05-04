@@ -26,6 +26,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
 import { __setSpawnForTesting, type PipedChildProcess } from '../../src/run.ts';
 
@@ -118,8 +119,13 @@ function consumeExpectation(
 
 function fakeChild(response: ScriptedResponse): PipedChildProcess {
   const child = new EventEmitter();
-  const stdout = new EventEmitter();
-  const stderr = new EventEmitter();
+  // PassThrough is a real `stream.Readable` (and Writable), so the cast
+  // below isn't lying about the contract: any future `run()` change that
+  // uses standard stream APIs (`.pipe()`, `.read()`, `for await`) keeps
+  // working against the fake. `run()` only listens for `'data'` today,
+  // but the fixture is shared infra and shouldn't be the brittle hop.
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
 
   // setImmediate ensures the test code has a chance to attach 'data' / 'close'
   // listeners before we emit. (`run.ts` attaches synchronously after spawn,
@@ -127,13 +133,18 @@ function fakeChild(response: ScriptedResponse): PipedChildProcess {
   setImmediate(() => {
     if (response.error) {
       // Spawn-level failure (ENOENT etc.): Node only fires 'error', never
-      // 'close', so don't emit any stdout/stderr/close — `run()` rejects
-      // straight from its 'error' handler.
+      // 'close', so end the streams as part of the synthetic-failure
+      // exit and skip the close event — `run()` rejects straight from
+      // its 'error' handler.
+      stdout.end();
+      stderr.end();
       child.emit('error', response.error);
       return;
     }
-    if (response.stdout) stdout.emit('data', Buffer.from(response.stdout, 'utf8'));
-    if (response.stderr) stderr.emit('data', Buffer.from(response.stderr, 'utf8'));
+    if (response.stdout) stdout.write(Buffer.from(response.stdout, 'utf8'));
+    if (response.stderr) stderr.write(Buffer.from(response.stderr, 'utf8'));
+    stdout.end();
+    stderr.end();
     // Match Node's contract: when a child is terminated by a signal, `close`
     // fires with `code === null`. Otherwise it fires with the explicit exit
     // code (or 0). Without this branch a `response: { signal: 'SIGTERM' }`
@@ -147,10 +158,12 @@ function fakeChild(response: ScriptedResponse): PipedChildProcess {
 
 function unmatchedChild(command: string, args: readonly string[]): PipedChildProcess {
   const child = new EventEmitter();
-  const stdout = new EventEmitter();
-  const stderr = new EventEmitter();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
 
   setImmediate(() => {
+    stdout.end();
+    stderr.end();
     child.emit(
       'error',
       new Error(
