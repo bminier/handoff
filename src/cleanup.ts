@@ -32,13 +32,15 @@ export interface CleanupOpts {
   repoRoot: string;
   /**
    * @internal Test-only injection seam. Production callers should rely on the
-   * default deps wired to `git.ts` / `github.ts` / `node:fs`.
+   * default deps wired to `git.ts` / `github.ts` / `node:fs`. All-or-nothing
+   * by design: a partial set used to silently fall back to the real impls,
+   * which let a forgotten fake mutate the developer's actual repo.
    */
-  deps?: Partial<CleanupDeps>;
+  deps?: CleanupDeps;
 }
 
 export async function cleanup(branch: string, opts: CleanupOpts): Promise<CleanupResult> {
-  const deps: CleanupDeps = { ...defaultDeps, ...opts.deps };
+  const deps: CleanupDeps = opts.deps ?? defaultDeps;
   const path = worktreePath({ repoRoot: opts.repoRoot, branch });
 
   let merged: boolean;
