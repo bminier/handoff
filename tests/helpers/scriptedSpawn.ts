@@ -31,6 +31,14 @@ export interface ScriptedResponse {
   exitCode?: number;
   /** Optional emitted signal (rare; use for SIGTERM-style tests). */
   signal?: NodeJS.Signals;
+  /**
+   * Drive `run()`'s `child.on('error', ...)` path instead of `close` —
+   * the branch Node fires for spawn-level failures like ENOENT (binary not
+   * on PATH). Mutually exclusive with stdout/stderr/exitCode/signal; if set,
+   * those are ignored. Use this for tests that need to assert the wrapper's
+   * behaviour when the subprocess never starts.
+   */
+  error?: Error;
 }
 
 export interface ScriptedExpectation {
@@ -89,6 +97,13 @@ function fakeChild(response: ScriptedResponse): ChildProcess {
   // listeners before we emit. (`run.ts` attaches synchronously after spawn,
   // but that's an implementation detail we don't want this fixture to rely on.)
   setImmediate(() => {
+    if (response.error) {
+      // Spawn-level failure (ENOENT etc.): Node only fires 'error', never
+      // 'close', so don't emit any stdout/stderr/close — `run()` rejects
+      // straight from its 'error' handler.
+      child.emit('error', response.error);
+      return;
+    }
     if (response.stdout) stdout.emit('data', Buffer.from(response.stdout, 'utf8'));
     if (response.stderr) stderr.emit('data', Buffer.from(response.stderr, 'utf8'));
     // Match Node's contract: when a child is terminated by a signal, `close`

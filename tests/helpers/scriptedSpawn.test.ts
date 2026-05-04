@@ -46,6 +46,24 @@ describe('scriptedSpawn', () => {
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
   });
 
+  it("drives run()'s spawn-error path when response.error is set", async () => {
+    // Synthetic ENOENT: the binary isn't on PATH. Node fires 'error' (never
+    // 'close') and `run()` rejects with the raw Error — *not* a RunError,
+    // since RunError is built from a close-event RunResult.
+    const enoent = Object.assign(new Error('spawn handoff-nonexistent ENOENT'), {
+      code: 'ENOENT',
+    });
+    spawn.expect({
+      command: 'handoff-nonexistent',
+      argv: ['--help'],
+      response: { error: enoent },
+    });
+
+    const promise = run('handoff-nonexistent', ['--help']);
+    await expect(promise).rejects.toBe(enoent);
+    await expect(promise).rejects.not.toBeInstanceOf(RunError);
+  });
+
   it('rejects with RunError when only a signal is set (matches Node close-on-signal)', async () => {
     spawn.expect({
       command: 'gh',
