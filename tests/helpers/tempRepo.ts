@@ -4,8 +4,14 @@
  * The contract under test in `git.ts` is git's actual behaviour — `git
  * worktree add`, `branch -D`, etc. — so a scripted-spawn fake would just
  * encode our wrapper's expectations and miss every real divergence. This
- * fixture instead spins up a throwaway repo in `os.tmpdir()` and runs the
- * real `git`. Cleanup removes the directory.
+ * fixture instead spins up a throwaway repo under a suite-owned root in
+ * `os.tmpdir()` and runs the real `git`. Cleanup removes the directory.
+ *
+ * Path safety: every repo lives under a single per-process root (`SUITE_ROOT`
+ * below). `cleanup()` will only `rmSync` paths whose realpath resolves
+ * under that root, so a test that registers a stray worktree path —
+ * accidentally or otherwise — cannot turn this helper into a recursive
+ * deleter for a directory outside its own namespace.
  *
  * Usage:
  *
@@ -21,9 +27,9 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { join, sep } from 'node:path';
 
 export interface TempRepoOptions {
   /** Initial branch name. Defaults to `'dev'` to match this repo's convention. */
@@ -33,14 +39,65 @@ export interface TempRepoOptions {
   /** Remotes to register. Map of remote name → URL. URL can be any string git accepts. */
   remotes?: Readonly<Record<string, string>>;
   /**
-   * `mkdtemp` prefix under `os.tmpdir()`. Defaults to `'handoff-temprepo-'`.
-   * Override when a test needs to scan `tmpdir()` for its own dirs without
-   * picking up sibling tempRepo callers running in parallel.
+   * `mkdtemp` prefix under the suite root. Defaults to `'handoff-temprepo-'`.
+   * Override when a test needs to scan the suite root for its own dirs
+   * without picking up sibling tempRepo callers in the same run.
    */
   tmpPrefix?: string;
 }
 
 export const DEFAULT_TMP_PREFIX = 'handoff-temprepo-';
+
+// Suite-owned root: every tempRepo lives under this single mkdtemp'd
+// directory, and `cleanup()` refuses to rmSync any path that doesn't
+// resolve under it. The realpath anchor — not a basename predicate — is
+// the safety boundary against "a test typo'd a worktree path and cleanup
+// deleted an unrelated directory." Everything destructive in this file
+// gates on `isUnderSuiteRoot()`.
+//
+// realpath both ends so macOS `/var` ↔ `/private/var` and Windows 8.3
+// short names normalize. realpathSync.native goes through the OS's own
+// realpath, which is the variant that resolves Windows short names
+// reliably.
+const SUITE_ROOT = realpathSync.native(mkdtempSync(join(tmpdir(), 'handoff-test-suite-')));
+
+// Sweep at process exit. Under normal flow each test's `cleanup()` already
+// removed its own repo, but if a `beforeEach` throws after `mkdtemp` and
+// the local try/catch ever regresses, the orphan still lives under
+// SUITE_ROOT — which the exit handler will tear down.
+process.on('exit', () => {
+  try {
+    rmSync(SUITE_ROOT, { recursive: true, force: true });
+  } catch {
+    /* exit-time cleanup is best-effort */
+  }
+});
+
+function isUnderSuiteRoot(candidate: string): boolean {
+  let resolved: string;
+  try {
+    resolved = realpathSync.native(candidate);
+  } catch {
+    // Path doesn't exist (already removed) or unreadable. Don't fall back
+    // to a raw `startsWith` — without realpath we can't tell `/var/...`
+    // apart from `/private/var/...` on macOS, and a permissive fallback
+    // would defeat the boundary. Caller treats `false` as "leave it
+    // alone," which is the safe choice.
+    return false;
+  }
+  // Strict descendant — never SUITE_ROOT itself. The `process.on('exit')`
+  // handler owns the root; cleanup() only deletes *under* it.
+  return resolved.startsWith(SUITE_ROOT + sep);
+}
+
+/**
+ * @internal Test-only accessor for the suite root. Tests that need to
+ * scan the root directly (e.g. leak-check) read it through this.
+ * Production code has no business knowing the path.
+ */
+export function __getSuiteRootForTesting(): string {
+  return SUITE_ROOT;
+}
 
 export interface GitResult {
   stdout: string;
@@ -102,22 +159,19 @@ function runGit(cwd: string, args: readonly string[]): GitResult {
 export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
   const initialBranch = opts.initialBranch ?? 'dev';
   const tmpPrefix = opts.tmpPrefix ?? DEFAULT_TMP_PREFIX;
-  // mkdtempSync joins the prefix with tmpdir() and creates a dir at
-  // `<joined><6-random-chars>`. We've now hit three distinct escape
-  // modes — separators (`'a/b-'`), trailing separators (`'nested/'`,
-  // which collapses past dirname-equals-tmpdir checks), and dot
-  // segments (`'.'` resolves to tmpdir itself, `'..'` to its parent).
-  // Each fix-by-pattern attempt missed at least one. Replace with a
-  // strict allowlist: alphanumerics, underscore, hyphen. Test fixtures
-  // don't need anything richer, and any character class outside this
-  // set is either a separator, a dot segment, or trivially weird —
-  // safer to reject all of them than to keep enumerating escape modes.
+  // Strict allowlist: alphanumerics, underscore, hyphen. The suite-root
+  // anchor (`isUnderSuiteRoot`) is the load-bearing guarantee against
+  // out-of-namespace deletions, but rejecting weird prefixes here also
+  // fails fast — separators (`'a/b-'`), trailing separators
+  // (`'nested/'`), and dot segments (`'.'`, `'..'`) are all rejected
+  // before mkdtemp gets a chance to land somewhere surprising under
+  // SUITE_ROOT.
   if (!/^[A-Za-z0-9_-]+$/.test(tmpPrefix)) {
     throw new Error(
-      `tmpPrefix must match /^[A-Za-z0-9_-]+$/ to stay safely inside os.tmpdir(); got: ${JSON.stringify(tmpPrefix)}`,
+      `tmpPrefix must match /^[A-Za-z0-9_-]+$/ to stay safely inside the suite root; got: ${JSON.stringify(tmpPrefix)}`,
     );
   }
-  const path = mkdtempSync(join(tmpdir(), tmpPrefix));
+  const path = mkdtempSync(join(SUITE_ROOT, tmpPrefix));
   let cleanedUp = false;
 
   // If any setup step throws (missing git, bad ref name, etc.) the caller
@@ -167,21 +221,21 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
       // git.ts's createWorktree puts linked worktrees at
       // `<repo.path>-<branch-tail>` (see worktreePath in src/branch.ts),
       // so rm'ing repo.path alone would leak any worktree the test added.
-      // Constrain removal to that namespace via a name predicate: a test
-      // that called `repo.git(['worktree', 'add', '/some/unrelated/dir',
-      // ...])` could otherwise turn this helper into a recursive deleter
-      // for an arbitrary path. Out-of-namespace registrations are left
-      // for the test to own.
+      // We sweep them via `git worktree list --porcelain`, but every
+      // candidate is gated through `isUnderSuiteRoot` — `git worktree
+      // list` is untrusted input (a test can register an arbitrary
+      // absolute path), and the suite-root anchor is what stops a typo
+      // from turning this helper into a recursive deleter for some
+      // unrelated directory.
       //
       // Earlier iterations routed this through `git worktree remove
-      // --force` for the same safety reason, but git's removal can fail
-      // (locked file, dir already gone) — which then orphaned the
-      // worktree the moment we proceeded to rm the main repo, with no
-      // way for a retry to discover it. Direct rmSync is more reliable
-      // (`force: true` no-ops on missing) and the predicate gives us the
-      // same path-safety guarantee.
+      // --force`, but git's removal can fail (locked file, dir already
+      // gone) and orphaned the worktree once we proceeded to rm the main
+      // repo. Direct rmSync is more reliable (`force: true` no-ops on
+      // missing) and the suite-root gate gives us the path-safety
+      // guarantee a basename predicate could not.
       for (const linkedPath of listLinkedWorktrees(path)) {
-        if (isWithinRepoNamespace(linkedPath, path)) {
+        if (isUnderSuiteRoot(linkedPath)) {
           rmSync(linkedPath, { recursive: true, force: true });
         }
       }
@@ -193,35 +247,6 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
       cleanedUp = true;
     },
   };
-}
-
-function isWithinRepoNamespace(linkedPath: string, repoPath: string): boolean {
-  // Compare basenames, not full paths. The directory parts are a
-  // platform-canonicalisation minefield (macOS /var ↔ /private/var;
-  // Windows RUNNER~1 ↔ runneradmin short/long names; backslashes vs git's
-  // forward slashes), and realpath resolution differs across runtimes —
-  // Bun on Windows CI didn't resolve the short name even when called
-  // explicitly, which broke the previous full-path predicate.
-  //
-  // The basename predicate trades off:
-  //   - Covers the realistic threat — a typo or accidentally absolute
-  //     path the test never meant to register will have an unrelated
-  //     basename and be left alone.
-  //   - Does *not* cover a test that deliberately constructs a path of
-  //     the form `<some-other-dir>/<repo-basename>-<anything>` and
-  //     registers it with `repo.git(['worktree', 'add', ...])`. The
-  //     basename matches, so cleanup *will* rm it even though the
-  //     directory part is outside the temp repo's parent.
-  //
-  // We accept that second gap because (a) constructing such a path
-  // requires the test to read `repo.path` and splice its random-suffix
-  // basename into a foreign directory — that's deliberate, not
-  // accidental, and (b) any path that does match the pattern is
-  // mimicking the createWorktree contract closely enough that removing
-  // it is the right answer for the common case. A future test that
-  // legitimately needs an out-of-namespace worktree should manage that
-  // path's lifecycle itself.
-  return basename(linkedPath).startsWith(`${basename(repoPath)}-`);
 }
 
 function listLinkedWorktrees(repoPath: string): readonly string[] {

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { branchExists } from '../../src/git.ts';
-import { createTempRepo, type TempRepo } from './tempRepo.ts';
+import { __getSuiteRootForTesting, createTempRepo, type TempRepo } from './tempRepo.ts';
 
 let repo: TempRepo;
 let originalCwd: string;
@@ -103,17 +103,19 @@ describe('tempRepo', () => {
     }
   });
 
-  it('rejects a tmpPrefix that would escape os.tmpdir()', () => {
+  it('rejects a tmpPrefix that would escape the suite root', () => {
     // Four escape modes the guard must catch (each broke a previous
     // iteration of this check):
-    //   - separators: would land the fixture in a sub-tree of tmpdir
-    //   - trailing separator (`'nested/'`): a dirname-equals-tmpdir check
+    //   - separators: would land the fixture in a sub-tree of the root
+    //   - trailing separator (`'nested/'`): a dirname-equals-root check
     //     passes here because dirname strips the trailing separator, but
-    //     mkdtemp still creates the fixture under `<tmpdir>/nested/`
-    //   - '.': collapses to tmpdir, so mkdtemp creates `<tmpdir>XXXXXX`
-    //     (a sibling of tmpdir, not a child)
-    //   - '..': escapes to tmpdir's parent
-    // All four would let cleanup() later rmSync something we don't own.
+    //     mkdtemp still creates the fixture under `<root>/nested/`
+    //   - '.': collapses to the root, so mkdtemp creates `<root>XXXXXX`
+    //     (a sibling of the root, not a child)
+    //   - '..': escapes to the root's parent
+    // The suite-root realpath gate would already refuse to rmSync any of
+    // these, but failing fast at creation gives a clearer error than
+    // letting a confusingly-named directory get created and orphaned.
     expect(() => createTempRepo({ tmpPrefix: '../foo-' })).toThrow(/A-Za-z0-9/);
     expect(() => createTempRepo({ tmpPrefix: 'a/b-' })).toThrow(/A-Za-z0-9/);
     expect(() => createTempRepo({ tmpPrefix: 'nested/' })).toThrow(/A-Za-z0-9/);
@@ -122,19 +124,20 @@ describe('tempRepo', () => {
   });
 
   it('does not leak a temp dir if setup fails', () => {
-    // Dedicated prefix isolates from sibling tempRepo callers in this run;
-    // the before-snapshot then isolates from stale `*-leakcheck-*` dirs
-    // left behind by a previous aborted run on the same machine. Either
-    // alone would let unrelated state poison the assertion.
+    // Scope the leak check to the suite root, not os.tmpdir(): every
+    // `createTempRepo` mkdtemps under the root, so a setup that throws
+    // can only orphan a directory there. A dedicated prefix then isolates
+    // this assertion from sibling tempRepo callers in the same run.
     const prefix = 'handoff-temprepo-leakcheck-';
-    const before = new Set(readdirSync(tmpdir()).filter((n) => n.startsWith(prefix)));
+    const root = __getSuiteRootForTesting();
+    const before = new Set(readdirSync(root).filter((n) => n.startsWith(prefix)));
 
     // `..bad` is rejected by `git branch` with "invalid branch name", which
     // throws partway through setup — after mkdtemp but before the handle is
     // returned. Guard ensures the directory doesn't survive the throw.
     expect(() => createTempRepo({ tmpPrefix: prefix, branches: ['..bad'] })).toThrow();
 
-    const after = readdirSync(tmpdir()).filter((n) => n.startsWith(prefix));
+    const after = readdirSync(root).filter((n) => n.startsWith(prefix));
     const newEntries = after.filter((n) => !before.has(n));
     expect(newEntries).toEqual([]);
   });
