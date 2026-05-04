@@ -91,6 +91,35 @@ describe('scriptedSpawn', () => {
     await expect(run('gh', ['repo', 'view'])).rejects.toBeInstanceOf(RunError);
   });
 
+  it('uninstall restores the previously-installed impl, not always real spawn', async () => {
+    // The seam in run.ts saves the *previous* spawn at install time and
+    // restores that — not unconditionally `nodeSpawn`. Without this test,
+    // a regression that always restored the real spawn would still pass
+    // every other case in this file (which only ever installs once) but
+    // would silently let scriptedSpawn's afterEach clobber a sibling
+    // fixture's install in any future stacked use.
+    const fixtureA = createScriptedSpawn();
+    fixtureA.install();
+    fixtureA.expect({ command: 'git', argv: ['a'], response: { stdout: 'A\n' } });
+
+    const fixtureB = createScriptedSpawn();
+    fixtureB.install();
+    fixtureB.expect({ command: 'git', argv: ['b'], response: { stdout: 'B\n' } });
+
+    // While B is on top, calls go to B.
+    await run('git', ['b']);
+    expect(fixtureB.calls.map((c) => c.args)).toEqual([['b']]);
+    expect(fixtureA.calls).toEqual([]);
+
+    // Uninstall B — A must be active again, not the real spawn (which would
+    // try to shell out to git for real and likely succeed, masking the bug).
+    fixtureB.uninstall();
+    await run('git', ['a']);
+    expect(fixtureA.calls.map((c) => c.args)).toEqual([['a']]);
+
+    fixtureA.uninstall();
+  });
+
   it('expectGh wires a JSON response into a github.ts call', async () => {
     spawn.expectGh(['issue', 'view', '7', '--json', 'number,title,body,labels,url'], {
       number: 7,
