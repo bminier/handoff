@@ -148,9 +148,9 @@ serialize. CI invokes `bun run test` so the flag applies there too. **Run
 up the pin, and if any test in the suite gets marked concurrent, your
 local run can hit a flake CI never sees.
 
-If we ever want real concurrency, the fix is structural: thread `cwd`
-through every `git.ts` function (it already accepts `cwd` at the `run()`
-boundary, so this is propagation, not new plumbing) and lift the spawn
-seam onto a per-fixture context instead of a module global. Out of scope
-for this PR — flagged here so the future flip isn't a silent-flake
-landmine.
+If we ever want real concurrency, the fix is structural and not small:
+add a `cwd` parameter to every `git.ts` function and thread it through
+to the `run()` call (which already takes `cwd` at its boundary), update
+every caller to pass it, and lift the spawn seam onto a per-fixture
+context instead of a module global. Out of scope for this PR — flagged
+here so the future flip isn't a silent-flake landmine.
