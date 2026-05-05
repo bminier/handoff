@@ -5,11 +5,19 @@
  * Matching is *consuming* and FIFO: a call matches the first registered
  * expectation that fits, and the expectation is removed once it fires.
  * If the same subprocess is expected twice, register two expectations.
- * If a call has no matching expectation — including a duplicate that
- * already consumed its match — the spawn emits an `error` event and the
- * test fails loudly. `uninstall()` also throws if any expectations were
- * never consumed, so a "this should have happened but didn't" bug
- * doesn't slip through as a silently-passing test.
+ *
+ * Teardown is strict in both directions. `uninstall()` throws if either
+ *
+ * - any expectation was registered but never matched (a "this should have
+ *   happened but didn't" bug), or
+ * - any call was made that no expectation matched (a "the code under test
+ *   spawned something we didn't sign off on" bug).
+ *
+ * The unmatched-call check matters because the spawn-time `'error'` event
+ * is only an in-band signal: if the code under test catches it (e.g.
+ * `cleanup()` mapping a failed subprocess to an `'unknown'` result), the
+ * test would otherwise pass with no indication that an unexpected
+ * subprocess fired. Surfacing it at teardown closes that hole.
  *
  * Usage:
  *
@@ -72,11 +80,12 @@ export interface ScriptedSpawn {
    * test, but a sibling scripted-spawn fixture under stacked use. Always
    * call from `afterEach` so the override doesn't leak past the test.
    *
-   * Throws if any registered expectations were never consumed. An
-   * unconsumed expectation means the test claimed a subprocess would run
-   * and it didn't — surfacing that loudly catches "the code stopped
-   * spawning what we expected" regressions that a passive call-count
-   * assertion would miss.
+   * Throws if either an `expect()` was never matched, or a call was made
+   * that no expectation matched. The first catches "the code stopped
+   * spawning what we expected"; the second catches "the code spawned
+   * something we didn't sign off on" (which the per-call `'error'` event
+   * misses if the SUT catches it). Both checks drain on throw so a
+   * subsequent `install()` starts clean.
    */
   uninstall(): void;
   /**
@@ -89,6 +98,14 @@ export interface ScriptedSpawn {
   expectGh(argv: readonly string[], jsonBody: unknown): void;
   /** Calls observed since the most recent `install()`, in order. */
   calls: ScriptedCall[];
+  /**
+   * Drain the unmatched-call queue and return the calls that were in it.
+   * Use this in a test that *deliberately* triggers an unmatched call
+   * (e.g. to assert the in-flight `'error'` rejection) so the outer
+   * `afterEach` teardown doesn't fail on a record the test already
+   * verified.
+   */
+  clearUnmatchedCalls(): readonly ScriptedCall[];
 }
 
 function argvEqual(a: readonly string[], b: readonly string[]): boolean {
@@ -179,6 +196,7 @@ function unmatchedChild(command: string, args: readonly string[]): PipedChildPro
 export function createScriptedSpawn(): ScriptedSpawn {
   const expectations: ScriptedExpectation[] = [];
   const calls: ScriptedCall[] = [];
+  const unmatchedCalls: ScriptedCall[] = [];
   let restore: (() => void) | null = null;
 
   const fixture: ScriptedSpawn = {
@@ -191,29 +209,55 @@ export function createScriptedSpawn(): ScriptedSpawn {
       // earlier phases. Mutate in place — `fixture.calls` is a reference.
       expectations.length = 0;
       calls.length = 0;
+      unmatchedCalls.length = 0;
       restore = __setSpawnForTesting((command, args, options) => {
-        calls.push({ command, args: [...args], cwd: options.cwd as string | undefined });
+        const call: ScriptedCall = {
+          command,
+          args: [...args],
+          cwd: options.cwd as string | undefined,
+        };
+        calls.push(call);
         const match = consumeExpectation(expectations, command, args);
-        return match ? fakeChild(match.response) : unmatchedChild(command, args);
+        if (match) {
+          return fakeChild(match.response);
+        }
+        // Track unmatched calls separately so teardown can fail even when
+        // the SUT swallows the per-call `'error'` event (e.g. `cleanup()`
+        // mapping a failed subprocess to an `'unknown'` result).
+        unmatchedCalls.push(call);
+        return unmatchedChild(command, args);
       });
     },
     uninstall() {
       if (!restore) return;
       restore();
       restore = null;
-      // Strict teardown: an `expect()` registration that never fires is a
-      // silent test bug — the test claimed "this subprocess will happen"
-      // and would still pass if the code stopped spawning it. Drain the
-      // queue *before* throwing so a subsequent `install()` starts clean
-      // even if afterEach fails here. Spawn is already restored above, so
-      // unrelated tests aren't polluted by this throw.
+      // Strict teardown in both directions:
+      //
+      // - leftover expectations: a registered call that never fired ("this
+      //   subprocess will happen" — and didn't).
+      // - unmatched calls: a spawn the test never signed off on. The
+      //   per-call `'error'` event already fires, but if the SUT catches
+      //   it the test would otherwise pass; surfacing it here closes that
+      //   hole.
+      //
+      // Drain both queues *before* throwing so a subsequent `install()`
+      // starts clean even if afterEach fails. Spawn is already restored
+      // above, so unrelated tests aren't polluted by this throw.
       const leftovers = expectations.splice(0);
+      const unexpected = unmatchedCalls.splice(0);
+      if (leftovers.length === 0 && unexpected.length === 0) return;
+
+      const parts: string[] = [];
       if (leftovers.length > 0) {
         const detail = leftovers.map((e) => `${e.command} ${e.argv.join(' ')}`).join('; ');
-        throw new Error(
-          `scriptedSpawn: ${leftovers.length} unconsumed expectation(s) at uninstall: ${detail}`,
-        );
+        parts.push(`${leftovers.length} unconsumed expectation(s): ${detail}`);
       }
+      if (unexpected.length > 0) {
+        const detail = unexpected.map((c) => `${c.command} ${c.args.join(' ')}`).join('; ');
+        parts.push(`${unexpected.length} unmatched call(s): ${detail}`);
+      }
+      throw new Error(`scriptedSpawn: ${parts.join(' / ')}`);
     },
     expect(expectation) {
       expectations.push({
@@ -228,6 +272,9 @@ export function createScriptedSpawn(): ScriptedSpawn {
         argv,
         response: { stdout: JSON.stringify(jsonBody) },
       });
+    },
+    clearUnmatchedCalls() {
+      return unmatchedCalls.splice(0);
     },
   };
 

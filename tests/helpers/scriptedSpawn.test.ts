@@ -44,6 +44,26 @@ describe('scriptedSpawn', () => {
 
   it('fails loudly when no expectation matches the call', async () => {
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
+    // The teardown check would otherwise re-throw on this same record;
+    // we already asserted on the in-flight error, so drain it.
+    expect(spawn.clearUnmatchedCalls().map((c) => c.args)).toEqual([['status']]);
+  });
+
+  it('uninstall throws when an unmatched call was swallowed by the caller', async () => {
+    // The per-call 'error' event already fails an awaiting test — the case
+    // this guards is when the code under test catches the error (e.g. a
+    // cleanup() that maps subprocess failures to an 'unknown' result) and
+    // keeps going. Without the teardown check, the test would pass with no
+    // hint that an unsanctioned subprocess fired. Manage the fixture
+    // locally so the outer afterEach doesn't see the leftover.
+    const local = createScriptedSpawn();
+    local.install();
+    // Caller swallows the spawn-time error.
+    await run('git', ['status']).catch(() => undefined);
+
+    expect(() => local.uninstall()).toThrow(/unmatched call\(s\).*git status/);
+    // Drained on throw — a follow-up uninstall must be a clean no-op.
+    expect(() => local.uninstall()).not.toThrow();
   });
 
   it('uninstall throws when expectations were registered but never consumed', () => {
@@ -85,6 +105,7 @@ describe('scriptedSpawn', () => {
     expect(first.stdout).toBe('first\n');
 
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched git status/);
+    spawn.clearUnmatchedCalls();
 
     // Two registrations → two matching calls allowed, in registration order.
     spawn.expect({ command: 'git', argv: ['status'], response: { stdout: 'a\n' } });
@@ -108,6 +129,7 @@ describe('scriptedSpawn', () => {
     spawn.install();
     expect(spawn.calls).toEqual([]);
     await expect(run('git', ['status'])).rejects.toThrow(/no expectation matched/);
+    spawn.clearUnmatchedCalls();
   });
 
   it("drives run()'s spawn-error path when response.error is set", async () => {

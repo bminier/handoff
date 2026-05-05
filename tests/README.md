@@ -55,7 +55,10 @@ returns JSON on stdout. Use `expect({ command, argv, response })` for anything
 else — non-zero exit codes (`response.exitCode = 1`) reject through `RunError`.
 
 If a call doesn't match any registered expectation, the spawn emits an
-`error` event so the test fails loudly rather than silently hanging.
+`error` event so an awaiting test fails fast. `uninstall()` also throws
+if any call went unmatched — that catches the case where the code under
+test catches the error and would otherwise let the unsanctioned spawn
+slip through silently.
 
 The seam itself is `__setSpawnForTesting` in `src/run.ts`. The `__` prefix
 and `@internal` JSDoc tag are conventional markers — neither is enforced
