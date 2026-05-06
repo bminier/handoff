@@ -66,5 +66,11 @@ bun "$HANDOFF_REPO/src/cli.ts" cleanup "$BRANCH"
 CLEANUP_EXIT=$?
 
 echo
-read -r -p "[handoff] Press Enter to close this window..." _
+# Only prompt when stdin is an actual TTY. The runner is launched into a
+# fresh terminal window in production (TTY present), but the integration
+# tests in tests/runner-bash.integration.test.ts spawn it with a piped
+# stdin and would otherwise block forever on `read`.
+if [ -t 0 ]; then
+  read -r -p "[handoff] Press Enter to close this window..." _
+fi
 exit "$CLEANUP_EXIT"

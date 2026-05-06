@@ -52,5 +52,10 @@ if ($LASTEXITCODE -eq 0 -and $gitCommonDir) {
 $cleanupExit = $LASTEXITCODE
 
 Write-Host ''
-Read-Host '[handoff] Press Enter to close this window' | Out-Null
+# Only prompt when stdin is an actual console. The runner is launched into
+# a fresh PowerShell window in production, but integration tests spawn it
+# with a piped stdin and would otherwise block forever on Read-Host.
+if (-not [Console]::IsInputRedirected) {
+  Read-Host '[handoff] Press Enter to close this window' | Out-Null
+}
 exit $cleanupExit
