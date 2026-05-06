@@ -68,53 +68,79 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
   );
 }
 
+function expectExit(
+  result: ReturnType<typeof runPwshRunner>,
+  expected: number,
+  label: string,
+): void {
+  if (result.status !== expected) {
+    console.error(`--- ${label} stdout ---\n${result.stdout ?? ''}`);
+    console.error(`--- ${label} stderr ---\n${result.stderr ?? ''}`);
+  }
+  expect(result.status).toBe(expected);
+}
+
+const TIMEOUT_MS = 30000;
+
 describePwsh('handoff-runner.ps1', () => {
-  it('PR merged: tool exits 0, runner cleans worktree and branch, exits 0', () => {
-    harness = createRunnerHarness({ target: 'pwsh', branch: 'claude/issue-7' });
-    expect(existsSync(harness.worktreePath)).toBe(true);
+  it(
+    'PR merged: tool exits 0, runner cleans worktree and branch, exits 0',
+    () => {
+      harness = createRunnerHarness({ target: 'pwsh', branch: 'claude/issue-7' });
+      expect(existsSync(harness.worktreePath)).toBe(true);
 
-    const result = runPwshRunner(harness, {
-      toolExit: 0,
-      ghPrListResponse: [{ number: 7 }],
-    });
+      const result = runPwshRunner(harness, {
+        toolExit: 0,
+        ghPrListResponse: [{ number: 7 }],
+      });
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('Removed worktree');
-    expect(result.stdout).toContain('deleted branch claude/issue-7');
-    expect(existsSync(harness.worktreePath)).toBe(false);
-    expect(() =>
-      harness!.repo.git(['show-ref', '--verify', 'refs/heads/claude/issue-7']),
-    ).toThrow();
-  });
+      expectExit(result, 0, 'pwsh PR merged');
+      expect(result.stdout).toContain('Removed worktree');
+      expect(result.stdout).toContain('deleted branch claude/issue-7');
+      expect(existsSync(harness.worktreePath)).toBe(false);
+      expect(() =>
+        harness!.repo.git(['show-ref', '--verify', 'refs/heads/claude/issue-7']),
+      ).toThrow();
+    },
+    TIMEOUT_MS,
+  );
 
-  it('PR not merged: prints retention banner, worktree retained, exits 0', () => {
-    harness = createRunnerHarness({ target: 'pwsh', branch: 'claude/issue-8' });
+  it(
+    'PR not merged: prints retention banner, worktree retained, exits 0',
+    () => {
+      harness = createRunnerHarness({ target: 'pwsh', branch: 'claude/issue-8' });
 
-    const result = runPwshRunner(harness, {
-      toolExit: 0,
-      ghPrListResponse: [],
-    });
+      const result = runPwshRunner(harness, {
+        toolExit: 0,
+        ghPrListResponse: [],
+      });
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('not merged');
-    expect(result.stdout).toContain('Worktree retained');
-    expect(existsSync(harness.worktreePath)).toBe(true);
-    harness.repo.git(['show-ref', '--verify', '--quiet', 'refs/heads/claude/issue-8']);
-  });
+      expectExit(result, 0, 'pwsh PR not merged');
+      expect(result.stdout).toContain('not merged');
+      expect(result.stdout).toContain('Worktree retained');
+      expect(existsSync(harness.worktreePath)).toBe(true);
+      harness.repo.git(['show-ref', '--verify', '--quiet', 'refs/heads/claude/issue-8']);
+    },
+    TIMEOUT_MS,
+  );
 
-  it('tool exits non-zero: cleanup still runs, runner exit code reflects cleanup', () => {
-    harness = createRunnerHarness({ target: 'pwsh', branch: 'claude/issue-9' });
+  it(
+    'tool exits non-zero: cleanup still runs, runner exit code reflects cleanup',
+    () => {
+      harness = createRunnerHarness({ target: 'pwsh', branch: 'claude/issue-9' });
 
-    const result = runPwshRunner(harness, {
-      toolExit: 5,
-      ghPrListResponse: [{ number: 9 }],
-    });
+      const result = runPwshRunner(harness, {
+        toolExit: 5,
+        ghPrListResponse: [{ number: 9 }],
+      });
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('claude exited (code 5)');
-    expect(result.stdout).toContain('Running cleanup for claude/issue-9');
-    expect(existsSync(harness.worktreePath)).toBe(false);
-  });
+      expectExit(result, 0, 'pwsh tool non-zero');
+      expect(result.stdout).toContain('claude exited (code 5)');
+      expect(result.stdout).toContain('Running cleanup for claude/issue-9');
+      expect(existsSync(harness.worktreePath)).toBe(false);
+    },
+    TIMEOUT_MS,
+  );
 
   it('cleanup unknown-status (e.g. gh unavailable): runner exits 1, retains worktree', () => {
     // Mirrors the bash-matrix counterpart — same observable contract,

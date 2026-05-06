@@ -48,67 +48,101 @@ function runBashRunner(h: RunnerHarness, opts: RunOpts = {}) {
   });
 }
 
+function expectExit(
+  result: ReturnType<typeof runBashRunner>,
+  expected: number,
+  label: string,
+): void {
+  if (result.status !== expected) {
+    // Surface stdout/stderr in CI logs whenever the runner doesn't
+    // match the expected exit. Without this the assertion failure
+    // shows only "Expected 0 / Received 1" and we have no way to tell
+    // why cleanup returned unknown.
+    console.error(`--- ${label} stdout ---\n${result.stdout ?? ''}`);
+    console.error(`--- ${label} stderr ---\n${result.stderr ?? ''}`);
+  }
+  expect(result.status).toBe(expected);
+}
+
+// Generous per-test timeout: cold-start bun on Windows GH Actions
+// runners can take several seconds for the first few subprocess
+// spawns (the runner test forks bash → cmd shim → bun → bun → git in
+// quick succession). The default 5s isn't enough for the first test.
+const TIMEOUT_MS = 30000;
+
 describeBash('handoff-runner.sh', () => {
-  it('PR merged: tool exits 0, runner cleans worktree and branch, exits 0', () => {
-    harness = createRunnerHarness({ target: 'bash', branch: 'claude/issue-7' });
-    expect(existsSync(harness.worktreePath)).toBe(true);
+  it(
+    'PR merged: tool exits 0, runner cleans worktree and branch, exits 0',
+    () => {
+      harness = createRunnerHarness({ target: 'bash', branch: 'claude/issue-7' });
+      expect(existsSync(harness.worktreePath)).toBe(true);
 
-    const result = runBashRunner(harness, {
-      toolExit: 0,
-      ghPrListResponse: [{ number: 7 }],
-    });
+      const result = runBashRunner(harness, {
+        toolExit: 0,
+        ghPrListResponse: [{ number: 7 }],
+      });
 
-    expect(result.status).toBe(0);
-    // The runner prints the cleanup result via cli.ts; the merged-PR
-    // path uses "Removed worktree" / "deleted branch".
-    expect(result.stdout).toContain('Removed worktree');
-    expect(result.stdout).toContain('deleted branch claude/issue-7');
-    // Worktree directory and branch ref are both gone after cleanup.
-    expect(existsSync(harness.worktreePath)).toBe(false);
-    expect(() =>
-      harness!.repo.git(['show-ref', '--verify', 'refs/heads/claude/issue-7']),
-    ).toThrow();
-  });
+      expectExit(result, 0, 'bash PR merged');
+      // The runner prints the cleanup result via cli.ts; the merged-PR
+      // path uses "Removed worktree" / "deleted branch".
+      expect(result.stdout).toContain('Removed worktree');
+      expect(result.stdout).toContain('deleted branch claude/issue-7');
+      // Worktree directory and branch ref are both gone after cleanup.
+      expect(existsSync(harness.worktreePath)).toBe(false);
+      expect(() =>
+        harness!.repo.git(['show-ref', '--verify', 'refs/heads/claude/issue-7']),
+      ).toThrow();
+    },
+    TIMEOUT_MS,
+  );
 
-  it('PR not merged: prints retention banner, worktree retained, exits 0', () => {
-    harness = createRunnerHarness({ target: 'bash', branch: 'claude/issue-8' });
+  it(
+    'PR not merged: prints retention banner, worktree retained, exits 0',
+    () => {
+      harness = createRunnerHarness({ target: 'bash', branch: 'claude/issue-8' });
 
-    const result = runBashRunner(harness, {
-      toolExit: 0,
-      // gh pr list --state merged returns [] for both "no PR" and
-      // "PR open" — the retention path is the same in either case.
-      ghPrListResponse: [],
-    });
+      const result = runBashRunner(harness, {
+        toolExit: 0,
+        // gh pr list --state merged returns [] for both "no PR" and
+        // "PR open" — the retention path is the same in either case.
+        ghPrListResponse: [],
+      });
 
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('not merged');
-    expect(result.stdout).toContain('Worktree retained');
-    expect(existsSync(harness.worktreePath)).toBe(true);
-    // Branch must survive — the agent might come back to push more
-    // commits before the PR finally merges.
-    harness.repo.git(['show-ref', '--verify', '--quiet', 'refs/heads/claude/issue-8']);
-  });
+      expectExit(result, 0, 'bash PR not merged');
+      expect(result.stdout).toContain('not merged');
+      expect(result.stdout).toContain('Worktree retained');
+      expect(existsSync(harness.worktreePath)).toBe(true);
+      // Branch must survive — the agent might come back to push more
+      // commits before the PR finally merges.
+      harness.repo.git(['show-ref', '--verify', '--quiet', 'refs/heads/claude/issue-8']);
+    },
+    TIMEOUT_MS,
+  );
 
-  it('tool exits non-zero: cleanup still runs, runner exit code reflects cleanup', () => {
-    // Production behaviour pin: the tool failed, but if the PR is somehow
-    // still merged we should clean up — and the runner's exit code comes
-    // from cleanup, not the tool. (Real-world case: the user merged the
-    // PR manually before quitting the agent.)
-    harness = createRunnerHarness({ target: 'bash', branch: 'claude/issue-9' });
+  it(
+    'tool exits non-zero: cleanup still runs, runner exit code reflects cleanup',
+    () => {
+      // Production behaviour pin: the tool failed, but if the PR is somehow
+      // still merged we should clean up — and the runner's exit code comes
+      // from cleanup, not the tool. (Real-world case: the user merged the
+      // PR manually before quitting the agent.)
+      harness = createRunnerHarness({ target: 'bash', branch: 'claude/issue-9' });
 
-    const result = runBashRunner(harness, {
-      toolExit: 5,
-      ghPrListResponse: [{ number: 9 }],
-    });
+      const result = runBashRunner(harness, {
+        toolExit: 5,
+        ghPrListResponse: [{ number: 9 }],
+      });
 
-    // Tool exit is reported in stdout (the "[handoff] $TOOL exited
-    // (code 5)" banner) but the script's final exit is from cleanup,
-    // which succeeded → 0.
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('claude exited (code 5)');
-    expect(result.stdout).toContain('Running cleanup for claude/issue-9');
-    expect(existsSync(harness.worktreePath)).toBe(false);
-  });
+      // Tool exit is reported in stdout (the "[handoff] $TOOL exited
+      // (code 5)" banner) but the script's final exit is from cleanup,
+      // which succeeded → 0.
+      expectExit(result, 0, 'bash tool non-zero');
+      expect(result.stdout).toContain('claude exited (code 5)');
+      expect(result.stdout).toContain('Running cleanup for claude/issue-9');
+      expect(existsSync(harness.worktreePath)).toBe(false);
+    },
+    TIMEOUT_MS,
+  );
 
   it('cleanup unknown-status (e.g. gh unavailable): runner exits 1, retains worktree', () => {
     // The 62c1611 contract at the runner level: when cleanup returns
