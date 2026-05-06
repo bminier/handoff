@@ -153,17 +153,30 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
 
     writeFakeShims({ fakeBinDir, target: opts.target });
 
-    harness.env = {
-      ...process.env,
-      PATH: `${fakeBinDir}${delimiter}${process.env.PATH ?? ''}`,
-      HOME: homeDir,
-      USERPROFILE: homeDir,
-      // Default both fake responses to the merged-PR happy path; tests
-      // override per-case before spawning. Empty string (instead of
-      // unset) so the shims don't hit a "variable not set" branch.
-      FAKE_TOOL_EXIT: '0',
-      FAKE_GH_PR_LIST_RESPONSE: JSON.stringify([{ number: 1 }]),
-    };
+    // On Windows, environment variables are case-insensitive in the OS
+    // but spread of `process.env` produces a plain object with whatever
+    // case the original key happened to have. If the original env has
+    // `Path` (mixed case, common on Windows) and we overwrite `PATH`
+    // (uppercase), the spawned subprocess sees *both* keys and Windows
+    // picks one — usually not ours. Strip every casing variant first,
+    // then set the canonical `PATH`. Same hazard for any other env var
+    // we override.
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const key of Object.keys(env)) {
+      const lower = key.toLowerCase();
+      if (lower === 'path' || lower === 'home' || lower === 'userprofile') {
+        delete env[key];
+      }
+    }
+    env.PATH = `${fakeBinDir}${delimiter}${process.env.PATH ?? ''}`;
+    env.HOME = homeDir;
+    env.USERPROFILE = homeDir;
+    // Default both fake responses to the merged-PR happy path; tests
+    // override per-case before spawning. Empty string (instead of
+    // unset) so the shims don't hit a "variable not set" branch.
+    env.FAKE_TOOL_EXIT = '0';
+    env.FAKE_GH_PR_LIST_RESPONSE = JSON.stringify([{ number: 1 }]);
+    harness.env = env;
 
     return harness;
   } catch (err) {
