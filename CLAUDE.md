@@ -24,7 +24,7 @@
 | `scripts/handoff-runner.sh`  | Bash wrapper: run tool, then `bun … cli.ts cleanup <branch>`              | shell |
 | `scripts/handoff-runner.ps1` | PowerShell equivalent for Windows                                         | shell |
 
-Tests live in `tests/` and cover the **pure** modules. I/O modules are smoke-tested manually for v0.1.0; integration tests are out of scope.
+Tests live in `tests/`. Pure modules are covered directly with `bun:test`. I/O modules use one of three fixtures — `scriptedSpawn`, `tempRepo`, or per-module dependency injection. See [tests/README.md](./tests/README.md) for which to pick when, and why `mock.module(...)` on `src/*.ts` is off-limits (Bun's mock.module is process-global and pollutes cross-file).
 
 ## Conventions
 
@@ -38,7 +38,7 @@ Tests live in `tests/` and cover the **pure** modules. I/O modules are smoke-tes
 
 1. Read `docs/requirements.md` and `docs/implementation-plan.v0.1.0.md` first.
 2. Add tests for any pure-function change.
-3. Run `bun test && bun run typecheck && bun run lint` before committing.
+3. Run `bun run test && bun run typecheck && bun run lint` before committing. Use `bun run test` (not bare `bun test`) so the package.json `--max-concurrency=1` pin applies — the I/O-test fixtures rely on it.
 4. Cross-platform changes (terminal spawn, runner scripts, paths) need a note in the PR about which platforms you smoke-tested.
 
 ## How to add a new adapter

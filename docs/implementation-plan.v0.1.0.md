@@ -40,7 +40,7 @@ One PR into `dev` lands all of v0.1.0. Commits below are the intended sequence i
 
 - `src/github.ts` — `fetchIssue(n)`, `defaultBranch()`, `prMergedFor(branch)`. Each shells out to `gh` and parses JSON; throws typed errors on auth/network failure.
 - `src/git.ts` — `currentRepoRoot()`, `createWorktree({ branch, path, base })`, `removeWorktree(path)`, `deleteBranch(branch)`. Wraps `git` with `execa`-style child_process.
-- Smoke-tested manually; no unit tests (effectful).
+- I/O is unit-tested via the `tests/helpers/` fixtures (`scriptedSpawn` for `run`/`github`, `tempRepo` for `git`, dependency injection for modules with multiple collaborators). Per-module `git`/`github`/`terminal` test files are in flight under #14; cross-CLI integration coverage is tracked in #15. See `tests/README.md` for the fixture-selection guide.
 
 ## Phase 4 — Terminal launcher
 
@@ -86,7 +86,7 @@ One PR into `dev` lands all of v0.1.0. Commits below are the intended sequence i
 
 **Commit:** `ci: github actions (lint, typecheck, test)`
 
-- `.github/workflows/ci.yml` — Ubuntu, `oven-sh/setup-bun`, runs `bun install`, `bun run lint`, `bun run typecheck`, `bun test`. Triggers on push to `dev` / `prerelease/**` / `release/**` and PRs into the same.
+- `.github/workflows/ci.yml` — matrix of `ubuntu-latest`, `macos-latest`, `windows-latest` via `oven-sh/setup-bun`. Each runner does `bun install`, `bun run typecheck`, and `bun run test` (the script pins `--max-concurrency=1` so the I/O fixtures' single-threaded assumption holds — see `tests/README.md`). Format-check and lint are gated to the ubuntu runner since their output is invariant. Triggers on push to `dev` / `prerelease/**` / `release/**` and PRs into the same.
 - `CHANGELOG.md` with v0.1.0 entry.
 - Bump version in `package.json` to `0.1.0`.
 

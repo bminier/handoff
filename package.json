@@ -14,7 +14,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "bun test",
+    "test": "bun test --max-concurrency=1",
     "prepare": "husky"
   },
   "lint-staged": {

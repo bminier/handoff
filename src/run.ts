@@ -1,9 +1,58 @@
-import { spawn } from 'node:child_process';
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
+import type { Readable } from 'node:stream';
 
 export interface RunResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+}
+
+/**
+ * `run()` always launches with `stdio: ['ignore', 'pipe', 'pipe']`, so both
+ * stdout and stderr are guaranteed at runtime. Surfacing that in the type
+ * lets `run()` drop its non-null assertions and signals to test-fake authors
+ * that piped streams are part of the contract — though TypeScript can't
+ * fully enforce this, since a fake can launder the type via
+ * `as unknown as PipedChildProcess`. The benefit is the cast is then
+ * explicit at the seam, not silently absorbed by `!` inside `run()`.
+ */
+export type PipedChildProcess = Omit<ChildProcess, 'stdout' | 'stderr'> & {
+  stdout: Readable;
+  stderr: Readable;
+};
+
+type SpawnFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => PipedChildProcess;
+
+const pipedNodeSpawn: SpawnFn = (command, args, options) => {
+  // Narrow `node:child_process.spawn`'s nullable streams at the boundary —
+  // we always pass `stdio: ['ignore', 'pipe', 'pipe']` below, so the cast
+  // is safe at runtime.
+  return nodeSpawn(command, args, options) as PipedChildProcess;
+};
+
+let spawnImpl: SpawnFn = pipedNodeSpawn;
+
+/**
+ * @internal Test-only injection seam. Replaces the spawn used by `run()` and
+ * returns a restore function that puts back whatever impl was active before
+ * this call — *not* unconditionally `nodeSpawn`. That lets nested fixtures
+ * (or sibling tests in the same process) stack installs without clobbering
+ * each other when uninstalled in LIFO order. Production code must not call
+ * this — see `tests/README.md`.
+ */
+export function __setSpawnForTesting(impl: SpawnFn): () => void {
+  const previous = spawnImpl;
+  spawnImpl = impl;
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    spawnImpl = previous;
+  };
 }
 
 export class RunError extends Error {
@@ -36,7 +85,7 @@ export function run(
   opts: RunOpts = {},
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const child = spawnImpl(command, args, {
       cwd: opts.cwd,
       env: opts.env ?? process.env,
       stdio: ['ignore', 'pipe', 'pipe'],

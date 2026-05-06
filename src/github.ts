@@ -15,9 +15,13 @@ export interface IssueDetails {
   labels: string[];
 }
 
-async function gh(args: readonly string[]): Promise<string> {
+export interface GhOpts {
+  cwd?: string;
+}
+
+async function gh(args: readonly string[], opts: GhOpts = {}): Promise<string> {
   try {
-    const { stdout } = await run('gh', args);
+    const { stdout } = await run('gh', args, opts.cwd === undefined ? {} : { cwd: opts.cwd });
     return stdout;
   } catch (err) {
     if (err instanceof RunError) {
@@ -77,19 +81,11 @@ export async function defaultBranch(): Promise<string> {
   return name;
 }
 
-export async function prMergedFor(branch: string): Promise<boolean> {
-  const stdout = await gh([
-    'pr',
-    'list',
-    '--head',
-    branch,
-    '--state',
-    'merged',
-    '--json',
-    'number',
-    '--limit',
-    '1',
-  ]);
+export async function prMergedFor(branch: string, opts: GhOpts = {}): Promise<boolean> {
+  const stdout = await gh(
+    ['pr', 'list', '--head', branch, '--state', 'merged', '--json', 'number', '--limit', '1'],
+    opts,
+  );
   const parsed = JSON.parse(stdout) as Array<{ number: number }>;
   return Array.isArray(parsed) && parsed.length > 0;
 }

@@ -1,11 +1,25 @@
 import { dirname, resolve } from 'node:path';
-import { run } from './run.ts';
+import { run, type RunOpts } from './run.ts';
 
 export class GitError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'GitError';
   }
+}
+
+/**
+ * Optional cwd for git invocations. Cleanup runs from inside the worktree
+ * being removed, where `git worktree remove` and `git branch -D` would fail
+ * against the current repo state — the caller pins cwd to the main repo
+ * root so those operations target the correct worktree from outside it.
+ */
+export interface GitOpts {
+  cwd?: string;
+}
+
+function cwdOpts(opts: GitOpts): RunOpts {
+  return opts.cwd === undefined ? {} : { cwd: opts.cwd };
 }
 
 export async function currentRepoRoot(): Promise<string> {
@@ -36,9 +50,9 @@ export async function repoName(): Promise<string> {
   return last;
 }
 
-export async function branchExists(branch: string): Promise<boolean> {
+export async function branchExists(branch: string, opts: GitOpts = {}): Promise<boolean> {
   try {
-    await run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`]);
+    await run('git', ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`], cwdOpts(opts));
     return true;
   } catch {
     return false;
@@ -61,10 +75,10 @@ export async function createWorktree(input: CreateWorktreeInput): Promise<void> 
   await run('git', ['worktree', 'add', '-b', input.branch, input.path, input.base]);
 }
 
-export async function removeWorktree(path: string): Promise<void> {
-  await run('git', ['worktree', 'remove', '--force', path]);
+export async function removeWorktree(path: string, opts: GitOpts = {}): Promise<void> {
+  await run('git', ['worktree', 'remove', '--force', path], cwdOpts(opts));
 }
 
-export async function deleteBranch(branch: string): Promise<void> {
-  await run('git', ['branch', '-D', branch]);
+export async function deleteBranch(branch: string, opts: GitOpts = {}): Promise<void> {
+  await run('git', ['branch', '-D', branch], cwdOpts(opts));
 }

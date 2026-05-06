@@ -1,19 +1,63 @@
-import { existsSync } from 'node:fs';
-import { branchExists, deleteBranch, removeWorktree } from './git.ts';
+import { existsSync as fsExistsSync } from 'node:fs';
+import {
+  branchExists as gitBranchExists,
+  deleteBranch as gitDeleteBranch,
+  removeWorktree as gitRemoveWorktree,
+} from './git.ts';
 import { branchTail, worktreePath } from './branch.ts';
-import { GhError, prMergedFor } from './github.ts';
+import { GhError, prMergedFor as ghPrMergedFor } from './github.ts';
 
 export interface CleanupResult {
   status: 'removed' | 'retained' | 'unknown';
   message: string;
 }
 
-export async function cleanup(branch: string, opts: { repoRoot: string }): Promise<CleanupResult> {
+export interface CleanupDeps {
+  prMergedFor: (branch: string) => Promise<boolean>;
+  branchExists: (branch: string) => Promise<boolean>;
+  removeWorktree: (path: string) => Promise<void>;
+  deleteBranch: (branch: string) => Promise<void>;
+  existsSync: (path: string) => boolean;
+}
+
+/**
+ * Build the production deps wired to run from `repoRoot`.
+ *
+ * The runner scripts launch `handoff cleanup` with cwd set to the worktree
+ * being removed. Without pinning cwd, `git worktree remove --force <path>`
+ * is invoked from inside that doomed worktree (and `git branch -D <branch>`
+ * targets a branch that's still checked out there) — both fail. Bind the
+ * git/gh wrappers to `repoRoot` so production cleanup runs from outside
+ * the worktree it's deleting.
+ */
+function buildDefaultDeps(repoRoot: string): CleanupDeps {
+  return {
+    prMergedFor: (branch) => ghPrMergedFor(branch, { cwd: repoRoot }),
+    branchExists: (branch) => gitBranchExists(branch, { cwd: repoRoot }),
+    removeWorktree: (path) => gitRemoveWorktree(path, { cwd: repoRoot }),
+    deleteBranch: (branch) => gitDeleteBranch(branch, { cwd: repoRoot }),
+    existsSync: fsExistsSync,
+  };
+}
+
+export interface CleanupOpts {
+  repoRoot: string;
+  /**
+   * @internal Test-only injection seam. Production callers should rely on the
+   * default deps wired to `git.ts` / `github.ts` / `node:fs`. All-or-nothing
+   * by design: a partial set used to silently fall back to the real impls,
+   * which let a forgotten fake mutate the developer's actual repo.
+   */
+  deps?: CleanupDeps;
+}
+
+export async function cleanup(branch: string, opts: CleanupOpts): Promise<CleanupResult> {
+  const deps: CleanupDeps = opts.deps ?? buildDefaultDeps(opts.repoRoot);
   const path = worktreePath({ repoRoot: opts.repoRoot, branch });
 
   let merged: boolean;
   try {
-    merged = await prMergedFor(branch);
+    merged = await deps.prMergedFor(branch);
   } catch (err) {
     const reason = err instanceof GhError ? err.message : String(err);
     return {
@@ -33,10 +77,10 @@ export async function cleanup(branch: string, opts: { repoRoot: string }): Promi
     };
   }
 
-  const worktreeExisted = existsSync(path);
+  const worktreeExisted = deps.existsSync(path);
   if (worktreeExisted) {
     try {
-      await removeWorktree(path);
+      await deps.removeWorktree(path);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
       return {
@@ -50,9 +94,9 @@ export async function cleanup(branch: string, opts: { repoRoot: string }): Promi
   }
 
   let removedBranch = false;
-  if (await branchExists(branch)) {
+  if (await deps.branchExists(branch)) {
     try {
-      await deleteBranch(branch);
+      await deps.deleteBranch(branch);
       removedBranch = true;
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
