@@ -335,8 +335,23 @@ function emitFireAndForget(...args: Parameters<typeof emit>): void {
   void emit(...args).catch(() => {});
 }
 
+/**
+ * Run the CLI with the given argv and return the exit code. Exported so
+ * integration tests can drive the full pipeline in-process — see
+ * `tests/cli.integration.test.ts` and `tests/README.md`. Production callers
+ * should rely on the entry-point gate below.
+ */
+export async function cliMain(argv: readonly string[]): Promise<number> {
+  return main(argv);
+}
+
 // Use process.exitCode (not process.exit) so any in-flight `emit` fetches get
 // a chance to drain — they're already bounded by AbortController(EMIT_TIMEOUT_MS),
 // so the worst-case extra wall time is one timeout window. process.exit would
 // abort them immediately, which silently lost telemetry for users who'd opted in.
-process.exitCode = await main(process.argv.slice(2));
+//
+// Gate on `import.meta.main` so importing this file from a test doesn't
+// auto-execute against the test's argv.
+if (import.meta.main) {
+  process.exitCode = await main(process.argv.slice(2));
+}
