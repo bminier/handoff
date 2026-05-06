@@ -173,6 +173,7 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
 }
 
 function writeFakeShims(opts: { fakeBinDir: string; target: 'bash' | 'pwsh' }): void {
+  const isWin = process.platform === 'win32';
   // The fake-shim pattern: a thin platform-native wrapper that delegates
   // to bun running a TS file. Two reasons:
   //   1. The TS impl is one source of truth for shim behaviour, regardless
@@ -219,12 +220,22 @@ function writeFakeShims(opts: { fakeBinDir: string; target: 'bash' | 'pwsh' }): 
     'utf8',
   );
 
-  // Always write both shim styles. The test target picks which one *the
-  // runner script* uses (bash reads the unix-shebang shim, pwsh resolves
-  // the .cmd via PATHEXT), but the runner spawns `bun cli.ts cleanup`
-  // which on Windows walks PATHEXT too — so even the bash matrix needs
-  // a .cmd shim for the bun subprocess's `gh` lookup. They have
-  // different filenames and don't collide.
+  // Both shim styles are written every time. Two consumers, two lookup
+  // strategies, both have to be satisfied:
+  //
+  //   - Git Bash on Windows does *not* walk PATHEXT — it tries the
+  //     literal name only — so it needs the no-extension shebang shim
+  //     to find `claude`/`gh`. Without it, bash falls through to the
+  //     user's real claude.exe/gh.exe (whatever PATH offers) and the
+  //     test isn't actually testing the runner against a fake.
+  //   - The bun-cli subprocess that the runner spawns is a Win32
+  //     process whose `spawn(...)` walks PATHEXT — so on Windows it
+  //     resolves `gh` to `gh.cmd`. The .cmd shim is what serves bun's
+  //     gh lookups during cleanup.
+  //
+  // Both files coexist with different filenames; bash picks the
+  // shebang one, bun picks the .cmd one. On Unix the .cmd is just
+  // dead weight (PATHEXT isn't a thing) but harmless.
   writeFileSync(
     join(opts.fakeBinDir, 'gh'),
     `#!/usr/bin/env bash\nexec bun "${fakeGhImpl}" "$@"\n`,
@@ -235,14 +246,18 @@ function writeFakeShims(opts: { fakeBinDir: string; target: 'bash' | 'pwsh' }): 
     `#!/usr/bin/env bash\nexec bun "${fakeToolImpl}" "$@"\n`,
     'utf8',
   );
-  writeFileSync(join(opts.fakeBinDir, 'gh.cmd'), `@echo off\r\nbun "${fakeGhImpl}" %*\r\n`, 'utf8');
-  writeFileSync(
-    join(opts.fakeBinDir, 'claude.cmd'),
-    `@echo off\r\nbun "${fakeToolImpl}" %*\r\n`,
-    'utf8',
-  );
-  // chmod is a no-op on Windows (NTFS doesn't honour POSIX modes), but
-  // bash on Linux/macOS needs the +x bit on the shebang shims.
+  if (isWin) {
+    writeFileSync(
+      join(opts.fakeBinDir, 'gh.cmd'),
+      `@echo off\r\nbun "${fakeGhImpl}" %*\r\n`,
+      'utf8',
+    );
+    writeFileSync(
+      join(opts.fakeBinDir, 'claude.cmd'),
+      `@echo off\r\nbun "${fakeToolImpl}" %*\r\n`,
+      'utf8',
+    );
+  }
   chmodSync(join(opts.fakeBinDir, 'gh'), 0o755);
   chmodSync(join(opts.fakeBinDir, 'claude'), 0o755);
 }
@@ -252,8 +267,26 @@ function writeFakeShims(opts: { fakeBinDir: string; target: 'bash' | 'pwsh' }): 
  * `undefined` if none was found. Tests skip when undefined so a CI
  * runner missing bash (very rare) or pwsh (linux/mac default) doesn't
  * fail the suite.
+ *
+ * On Windows, prefer Git Bash explicitly over `Bun.which('bash')`.
+ * The GH Actions windows-latest image has *both* Git Bash and WSL
+ * bash on PATH; PATH ordering can land on WSL bash, which lives in
+ * its own filesystem world (`/mnt/c/...`), can't execute `.cmd`
+ * shims, and converts PATH inheritance in ways that drop the
+ * Windows-style fakeBinDir we prepend. Git Bash (MSYS2) handles all
+ * of that natively. Production callers don't go through this — only
+ * the runner-script tests.
  */
 export function findInterpreter(name: 'bash' | 'pwsh'): string | undefined {
+  if (name === 'bash' && process.platform === 'win32') {
+    const gitBashCandidates = [
+      'C:\\Program Files\\Git\\bin\\bash.exe',
+      'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    ];
+    for (const candidate of gitBashCandidates) {
+      if (existsSync(candidate)) return candidate;
+    }
+  }
   // Bun.which respects PATH and PATHEXT correctly on Windows.
   const found = Bun.which(name);
   if (found && existsSync(found)) return found;

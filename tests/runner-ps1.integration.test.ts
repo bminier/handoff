@@ -45,20 +45,24 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
   // -NoProfile keeps the test hermetic against the user's PowerShell
   // profile. -ExecutionPolicy Bypass avoids the unsigned-script block
   // CI runners sometimes hit on first invocation.
+  //
+  // Set cwd via `Set-Location` inside the command rather than
+  // `spawnSync({ cwd })` — on Windows, bun's spawnSync holds the cwd
+  // it's given for the duration of the parent's life, which pins the
+  // worktree directory and breaks the later `git worktree remove`.
+  // The bash matrix has the same fix and the same justification.
   return spawnSync(
     pwsh!,
     [
       '-NoProfile',
       '-ExecutionPolicy',
       'Bypass',
-      '-File',
-      h.runnerScript,
-      h.handoffRepoRoot,
-      'claude',
-      h.branch,
+      '-Command',
+      `Set-Location -LiteralPath '${h.worktreePath}'; ` +
+        `& '${h.runnerScript}' '${h.handoffRepoRoot}' 'claude' '${h.branch}'; ` +
+        `exit $LASTEXITCODE`,
     ],
     {
-      cwd: h.worktreePath,
       env,
       encoding: 'utf8',
       // Pipe stdin so the runner's [Console]::IsInputRedirected guard

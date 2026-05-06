@@ -38,8 +38,18 @@ function runBashRunner(h: RunnerHarness, opts: RunOpts = {}) {
         : JSON.stringify(opts.ghPrListResponse),
     ...(opts.ghFail ? { FAKE_GH_FAIL: '1' } : {}),
   };
-  return spawnSync(bash!, [h.runnerScript, h.handoffRepoRoot, 'claude', h.branch], {
-    cwd: h.worktreePath,
+  // Set cwd by `cd`-ing inside the bash command rather than passing it
+  // through `spawnSync({ cwd })`. On Windows, bun's spawnSync holds a
+  // handle on the cwd it was given for the duration of its own
+  // process, which pins the worktree directory and makes
+  // `git worktree remove --force` later fail with "Permission denied".
+  // Confirmed via minimal repro: cwd-less spawn + bash-side cd
+  // succeeds; spawnSync(cwd:wt) fails. cd-ing inside the shell command
+  // instead lets the worktree be deleted normally.
+  const wt = h.worktreePath.replace(/\\/g, '/');
+  const runner = h.runnerScript.replace(/\\/g, '/');
+  const cmd = `cd "${wt}" && exec "${runner}" "${h.handoffRepoRoot}" claude "${h.branch}"`;
+  return spawnSync(bash!, ['-c', cmd], {
     env,
     encoding: 'utf8',
     // Pipe stdin so the runner's `[ -t 0 ]` guard sees a non-TTY and
