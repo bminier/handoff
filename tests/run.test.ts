@@ -120,7 +120,7 @@ describe('run() — spawn options', () => {
 
   beforeEach(() => {
     recorded = [];
-    restore = __setSpawnForTesting((_command, _args, options) => {
+    restore = __setSpawnForTesting(() => (_command, _args, options) => {
       recorded.push(options);
       const child = new EventEmitter();
       const stdout = new PassThrough();
@@ -183,8 +183,8 @@ describe('run() — output handling', () => {
     stdoutChunks: string[];
     stderrChunks: string[];
     exitCode: number;
-  }) {
-    return ((_command: string, _args: readonly string[], _options: SpawnOptions) => {
+  }): Parameters<typeof __setSpawnForTesting>[0] {
+    return () => (_command: string, _args: readonly string[], _options: SpawnOptions) => {
       const child = new EventEmitter();
       const stdout = new PassThrough();
       const stderr = new PassThrough();
@@ -196,7 +196,7 @@ describe('run() — output handling', () => {
         child.emit('close', opts.exitCode, null);
       });
       return Object.assign(child, { stdout, stderr }) as unknown as PipedChildProcess;
-    }) satisfies Parameters<typeof __setSpawnForTesting>[0];
+    };
   }
 
   afterEach(() => {

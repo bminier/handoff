@@ -38,6 +38,21 @@ import { PassThrough } from 'node:stream';
 
 import { __setSpawnForTesting, type PipedChildProcess } from '../../src/run.ts';
 
+export interface ScriptedSpawnOptions {
+  /**
+   * Predicate that decides which calls are not the fixture's responsibility
+   * and should fall through to the *previous* spawn impl that was active at
+   * `install()` time (typically the production `pipedNodeSpawn`). Used for
+   * the CLI integration harness in `tests/cli.integration.test.ts`, where
+   * `gh` is faked but `git` runs against a real `tempRepo`.
+   *
+   * Pass-through calls are still recorded in `calls` so the test can assert
+   * what was spawned, but they are *not* tracked as unmatched calls — the
+   * fixture isn't claiming ownership of them.
+   */
+  passthrough?: (command: string, args: readonly string[]) => boolean;
+}
+
 export interface ScriptedResponse {
   stdout?: string;
   stderr?: string;
@@ -193,10 +208,11 @@ function unmatchedChild(command: string, args: readonly string[]): PipedChildPro
   return Object.assign(child, { stdout, stderr }) as unknown as PipedChildProcess;
 }
 
-export function createScriptedSpawn(): ScriptedSpawn {
+export function createScriptedSpawn(opts: ScriptedSpawnOptions = {}): ScriptedSpawn {
   const expectations: ScriptedExpectation[] = [];
   const calls: ScriptedCall[] = [];
   const unmatchedCalls: ScriptedCall[] = [];
+  const passthrough = opts.passthrough;
   let restore: (() => void) | null = null;
 
   const fixture: ScriptedSpawn = {
@@ -210,13 +226,21 @@ export function createScriptedSpawn(): ScriptedSpawn {
       expectations.length = 0;
       calls.length = 0;
       unmatchedCalls.length = 0;
-      restore = __setSpawnForTesting((command, args, options) => {
+      restore = __setSpawnForTesting((previous) => (command, args, options) => {
         const call: ScriptedCall = {
           command,
           args: [...args],
           cwd: options.cwd as string | undefined,
         };
         calls.push(call);
+        if (passthrough?.(command, args)) {
+          // Hybrid harness: this call isn't ours to fake (e.g. CLI
+          // integration test fakes `gh` but lets `git` hit tempRepo). The
+          // call is still recorded so the test can assert what ran, but
+          // it doesn't count toward the unmatched-call teardown check
+          // because the fixture isn't claiming ownership.
+          return previous(command, args, options);
+        }
         const match = consumeExpectation(expectations, command, args);
         if (match) {
           return fakeChild(match.response);

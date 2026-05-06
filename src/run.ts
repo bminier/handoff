@@ -37,16 +37,18 @@ const pipedNodeSpawn: SpawnFn = (command, args, options) => {
 let spawnImpl: SpawnFn = pipedNodeSpawn;
 
 /**
- * @internal Test-only injection seam. Replaces the spawn used by `run()` and
- * returns a restore function that puts back whatever impl was active before
- * this call — *not* unconditionally `nodeSpawn`. That lets nested fixtures
+ * @internal Test-only injection seam. The factory receives the previous
+ * spawn impl active at install time so a fixture can fall through to it
+ * (the hybrid harness `tests/helpers/scriptedSpawn.ts` uses this for its
+ * `passthrough` option). Returns a restore function that puts back that
+ * previous impl — *not* unconditionally `nodeSpawn`, so nested fixtures
  * (or sibling tests in the same process) stack installs without clobbering
  * each other when uninstalled in LIFO order. Production code must not call
  * this — see `tests/README.md`.
  */
-export function __setSpawnForTesting(impl: SpawnFn): () => void {
+export function __setSpawnForTesting(factory: (previous: SpawnFn) => SpawnFn): () => void {
   const previous = spawnImpl;
-  spawnImpl = impl;
+  spawnImpl = factory(previous);
   let restored = false;
   return () => {
     if (restored) return;

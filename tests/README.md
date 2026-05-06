@@ -117,15 +117,32 @@ uses, and `tempRepo` needs the real one to drive `git`. If a single
 module's test needs both, that's a sign the module is doing two different
 I/O things — split it before reaching for a hybrid harness.
 
-CLI-level integration tests (#15) are the documented exception: `cli.ts`
-fans out to both `fetchIssue` (gh) and `createWorktree` (git) in the same
-flow, so a happy-path test inherently needs fake-`gh` + real-`git`. The
-infra in this PR doesn't ship a hybrid harness yet; #15 will add one. The
-plan is a `passthrough?: (command, args) => boolean` option on
-`scriptedSpawn` so calls that match the predicate fall through to the
-real `spawn`. That keeps the "fake gh, real git" wiring expressible in
-one test without leaking back into per-module tests, which should keep
-using the strict matcher.
+### Hybrid harness for CLI integration tests
+
+CLI-level integration tests are the documented exception: `cli.ts` fans
+out to `fetchIssue` (gh), `createWorktree` (git), and `openTerminal`
+(internal spawn) in the same flow, so a happy-path test inherently needs
+fake-`gh` + real-`git` + fake-terminal. `tests/cli.integration.test.ts`
+wires this together using three opt-ins:
+
+1. **`createScriptedSpawn({ passthrough })`** — predicate that decides
+   which calls fall through to the _previous_ spawn impl active at
+   `install()` time (typically the production `pipedNodeSpawn`). The CLI
+   integration test passes `(cmd) => cmd === 'git'` so git operates on
+   the tempRepo while gh stays faked. Pass-through calls are still
+   recorded but don't count toward the unmatched-call teardown check.
+2. **`__setTerminalSpawnForTesting`** in `src/terminal.ts` — the
+   module-level seam paralleling `__setSpawnForTesting` in `run.ts`.
+   `openTerminal` reads it instead of `node:child_process.spawn`, so the
+   integration test can capture launches without the CLI threading a
+   `spawn?` arg through.
+3. **`HOME` / `USERPROFILE` redirection** — `showFirstRunBanner` and the
+   telemetry config read `os.homedir()`, so the test points it at a
+   mkdtemp dir to keep the developer's real `~/.handoff/` untouched.
+
+Per-module tests should keep using the strict matcher — `passthrough` is
+for integration tests where multiple I/O surfaces fan out from a single
+entry point.
 
 ## Concurrency assumption
 

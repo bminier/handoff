@@ -14,6 +14,31 @@ export type TerminalSpawnFn = (
   options: SpawnOptions,
 ) => ChildProcess;
 
+let terminalSpawnImpl: TerminalSpawnFn = nodeSpawn;
+
+/**
+ * @internal Test-only injection seam. Mirrors `__setSpawnForTesting` in
+ * `run.ts`: replaces the spawn used by `openTerminal` and returns a restore
+ * function that puts back whatever impl was active before this call. The
+ * CLI integration harness uses this to fake the terminal launch in-process
+ * without needing to thread a `spawn?` arg through `cli.ts`. Per-call
+ * injection via `OpenTerminalInput.spawn` still wins when set, so the
+ * existing per-platform unit tests in `tests/terminal.test.ts` are
+ * unaffected.
+ */
+export function __setTerminalSpawnForTesting(
+  factory: (previous: TerminalSpawnFn) => TerminalSpawnFn,
+): () => void {
+  const previous = terminalSpawnImpl;
+  terminalSpawnImpl = factory(previous);
+  let restored = false;
+  return () => {
+    if (restored) return;
+    restored = true;
+    terminalSpawnImpl = previous;
+  };
+}
+
 export interface OpenTerminalInput {
   /** Directory the new terminal should start in. */
   cwd: string;
@@ -137,7 +162,10 @@ export async function openTerminalOn(
     throw new TerminalError(`Unsupported platform: ${plat}`);
   }
 
-  const spawnImpl: TerminalSpawnFn = input.spawn ?? nodeSpawn;
+  // Per-call `input.spawn` wins (existing per-platform unit tests rely on
+  // this); the module-level test seam is for integration tests that drive
+  // `openTerminal` indirectly through the CLI.
+  const spawnImpl: TerminalSpawnFn = input.spawn ?? terminalSpawnImpl;
   const candidates: string[] =
     plat === 'win32'
       ? ['wt', 'cmd']
