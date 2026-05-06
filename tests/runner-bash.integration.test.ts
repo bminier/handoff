@@ -44,11 +44,15 @@ function runBashRunner(h: RunnerHarness, opts: RunOpts = {}) {
   // process, which pins the worktree directory and makes
   // `git worktree remove --force` later fail with "Permission denied".
   // Confirmed via minimal repro: cwd-less spawn + bash-side cd
-  // succeeds; spawnSync(cwd:wt) fails. cd-ing inside the shell command
-  // instead lets the worktree be deleted normally.
+  // succeeds; spawnSync(cwd:wt) fails.
+  //
+  // Use `bash <runner>` rather than direct invocation: scripts/handoff-
+  // runner.sh isn't committed with the +x bit (production calls it via
+  // `bash <script>` from openTerminal), and direct `<runner>` requires
+  // it. `bash <runner>` works regardless of file mode.
   const wt = h.worktreePath.replace(/\\/g, '/');
   const runner = h.runnerScript.replace(/\\/g, '/');
-  const cmd = `cd "${wt}" && exec "${runner}" "${h.handoffRepoRoot}" claude "${h.branch}"`;
+  const cmd = `cd "${wt}" && bash "${runner}" "${h.handoffRepoRoot}" claude "${h.branch}"`;
   return spawnSync(bash!, ['-c', cmd], {
     env,
     encoding: 'utf8',
@@ -64,10 +68,13 @@ function expectExit(
   label: string,
 ): void {
   if (result.status !== expected) {
-    // Surface stdout/stderr in CI logs whenever the runner doesn't
-    // match the expected exit. Without this the assertion failure
-    // shows only "Expected 0 / Received 1" and we have no way to tell
-    // why cleanup returned unknown.
+    // Dump everything we can about the spawn. The bash matrix has hit
+    // empty-stdout/empty-stderr failures on CI where status alone
+    // wasn't enough to tell whether the spawn errored vs the runner
+    // exited early.
+    console.error(`--- ${label} status: ${String(result.status)} ---`);
+    console.error(`--- ${label} signal: ${String(result.signal)} ---`);
+    console.error(`--- ${label} error: ${String(result.error)} ---`);
     console.error(`--- ${label} stdout ---\n${result.stdout ?? ''}`);
     console.error(`--- ${label} stderr ---\n${result.stderr ?? ''}`);
   }
