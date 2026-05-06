@@ -28,6 +28,26 @@ Write-Host '----------------------------------------'
 Write-Host "[handoff] $Tool exited (code $toolExit). Running cleanup for $Branch..."
 Write-Host '----------------------------------------'
 
+# Move out of the worktree before invoking cleanup. PowerShell holds
+# cwd as a real Windows file handle, which blocks `git worktree remove`
+# from deleting the directory. Derive the main repo root from git's
+# common dir, then cd there. cli.ts has its own best-effort chdir for
+# the bun-process side; this handles the parent-shell pin.
+$gitCommonDir = (git rev-parse --git-common-dir 2>$null)
+if ($LASTEXITCODE -eq 0 -and $gitCommonDir) {
+  if (-not [System.IO.Path]::IsPathRooted($gitCommonDir)) {
+    $gitCommonDir = Join-Path (Get-Location) $gitCommonDir
+  }
+  $mainRepoRoot = [System.IO.Path]::GetFullPath((Split-Path -Parent $gitCommonDir))
+  # Two-step cd is required: Set-Location updates only PowerShell's
+  # provider location, while [Directory]::SetCurrentDirectory updates
+  # the underlying Windows process CWD that holds the file handle. The
+  # OS won't let us delete the worktree until the process CWD has
+  # actually moved off it.
+  Set-Location -LiteralPath $mainRepoRoot -ErrorAction SilentlyContinue
+  [System.IO.Directory]::SetCurrentDirectory($mainRepoRoot)
+}
+
 & bun "$HandoffRepo/src/cli.ts" cleanup $Branch
 $cleanupExit = $LASTEXITCODE
 

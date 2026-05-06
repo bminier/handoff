@@ -72,6 +72,23 @@ async function runCleanup(branch: string): Promise<number> {
   const state = safeReadState(path);
   const startedAt = state?.createdAt ? Date.parse(state.createdAt) : NaN;
 
+  // Move the bun process's cwd out of the worktree before cleanup runs.
+  // The runner scripts launch us with cwd inside the worktree we're
+  // about to remove; on Windows, `git worktree remove --force` then
+  // fails with "Permission denied" because the OS won't delete a
+  // directory that's another process's cwd. cleanup's `defaultDeps`
+  // already binds *git* invocations to repoRoot — this releases the
+  // bun-process cwd handle for the same reason. mainRepoRoot is the
+  // closest stable directory we know exists.
+  if (process.cwd() !== repoRoot) {
+    try {
+      process.chdir(repoRoot);
+    } catch {
+      /* best-effort — if chdir fails we keep going; cleanup will surface
+         a clearer error than a process-state issue. */
+    }
+  }
+
   const t0 = Date.now();
   const result = await cleanup(branch, { repoRoot });
   console.log(result.message);
