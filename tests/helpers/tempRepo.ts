@@ -21,6 +21,12 @@
  * afterEach(() => repo.cleanup());
  * ```
  *
+ * If a test calls `process.chdir(repo.path)` to drive `git.ts` (which
+ * shells out in `process.cwd()`), restore the original cwd in the same
+ * `afterEach` *before* `repo.cleanup()`. On Windows, `rmSync` of a
+ * directory the process is sitting inside will fail. See
+ * `tests/README.md` for the full chdir + restore pattern.
+ *
  * Compatibility: uses `git symbolic-ref HEAD` to set the initial branch so the
  * helper works on `git ≥ 2.20` (the documented minimum), pre-dating
  * `git init -b <name>` which arrived in 2.28.
@@ -53,7 +59,8 @@ export const DEFAULT_TMP_PREFIX = 'handoff-temprepo-';
 // resolve under it. The realpath anchor — not a basename predicate — is
 // the safety boundary against "a test typo'd a worktree path and cleanup
 // deleted an unrelated directory." Everything destructive in this file
-// gates on `isUnderSuiteRoot()`.
+// gates on `isInRepoNamespace()` below, which combines the SUITE_ROOT
+// anchor with the per-repo `<repoPath>-<tail>` createWorktree contract.
 //
 // realpath both ends so macOS `/var` ↔ `/private/var` and Windows 8.3
 // short names normalize. realpathSync.native goes through the OS's own
@@ -168,8 +175,8 @@ function runGit(cwd: string, args: readonly string[]): GitResult {
 export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
   const initialBranch = opts.initialBranch ?? 'dev';
   const tmpPrefix = opts.tmpPrefix ?? DEFAULT_TMP_PREFIX;
-  // Strict allowlist: alphanumerics, underscore, hyphen. The suite-root
-  // anchor (`isUnderSuiteRoot`) is the load-bearing guarantee against
+  // Strict allowlist: alphanumerics, underscore, hyphen. The namespace
+  // gate (`isInRepoNamespace`) is the load-bearing guarantee against
   // out-of-namespace deletions, but rejecting weird prefixes here also
   // fails fast — separators (`'a/b-'`), trailing separators
   // (`'nested/'`), and dot segments (`'.'`, `'..'`) are all rejected
