@@ -17,7 +17,7 @@
  * Production callers don't use this — only the runner-script tests.
  */
 
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,14 +51,6 @@ export interface RunnerHarnessOptions {
    * found" early-exit branch.
    */
   createWorktree?: boolean;
-  /**
-   * If set, create an empty *bare* directory at the worktree path
-   * instead of registering it as a git worktree. The runner's cleanup
-   * will then find a directory at the expected path but git will refuse
-   * `worktree remove` (not a registered worktree) — drives the
-   * graceful-failure branch the script must handle.
-   */
-  unregisteredWorktreeDir?: boolean;
 }
 
 export interface RunnerHarness {
@@ -154,14 +146,10 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
       // main worktree (cwd doesn't get pinned by the test).
       repo.git(['worktree', 'add', '-b', opts.branch, wt, base]);
       writeFileSync(join(wt, 'PROMPT.md'), promptBody, 'utf8');
-    } else if (opts.unregisteredWorktreeDir) {
-      // No git worktree, just a bare directory at the expected path.
-      // existsSync(path) returns true; `git worktree remove` will fail
-      // because the path isn't a registered worktree — exercises the
-      // graceful-error path 62c1611 introduced.
-      mkdirSync(wt, { recursive: true });
-      writeFileSync(join(wt, 'PROMPT.md'), promptBody, 'utf8');
     }
+    // When createWorktree is false the test is responsible for whatever
+    // state it wants at `wt` (e.g. mkdir'ing an empty directory to
+    // exercise the "PROMPT.md not found" branch).
 
     writeFakeShims({ fakeBinDir, target: opts.target });
 
