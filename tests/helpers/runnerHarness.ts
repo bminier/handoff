@@ -1,0 +1,273 @@
+/**
+ * Runner-script integration harness.
+ *
+ * Sets up everything `scripts/handoff-runner.sh` and
+ * `scripts/handoff-runner.ps1` need to run end-to-end in a test:
+ *
+ *   - A real `tempRepo` with a real linked worktree (cleanup must touch
+ *     real git or it isn't testing the runner).
+ *   - A `PROMPT.md` at the worktree root (the runner refuses to start
+ *     without one).
+ *   - A temp bin directory with platform-correct `claude` and `gh`
+ *     shims, prepended to PATH so the runner's `"$TOOL" ...` and the
+ *     CLI's internal `gh pr list` resolve to fakes.
+ *   - A redirected HOME / USERPROFILE so the bun-cli subprocess
+ *     spawned by the runner can't touch the developer's `~/.handoff/`.
+ *
+ * Production callers don't use this — only the runner-script tests.
+ */
+
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { delimiter, dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { worktreePath } from '../../src/branch.ts';
+import { createTempRepo, type TempRepo } from './tempRepo.ts';
+
+export interface RunnerHarnessOptions {
+  /**
+   * Which runner script to test. Determines both the script path and
+   * the shim style: `'bash'` uses unix-shebang shims (Git Bash on
+   * Windows reads them via the shebang too), `'pwsh'` uses `.cmd` shims
+   * because PowerShell resolves binaries through PATHEXT.
+   */
+  target: 'bash' | 'pwsh';
+  /**
+   * Branch to hand off and clean up. Convention: `<tool>/issue-<N>`,
+   * matching what `branchName()` would produce.
+   */
+  branch: string;
+  /** Default branch the worktree is created off of. Matches tempRepo's `dev` default. */
+  base?: string;
+  /**
+   * Body of `PROMPT.md` — the runner doesn't parse it, just `cat`s and
+   * passes it to the tool. Default is a one-line stub.
+   */
+  promptBody?: string;
+  /**
+   * Whether the worktree should actually exist on disk + be registered
+   * with git. Default: `true`. Set `false` to test the "PROMPT.md not
+   * found" early-exit branch.
+   */
+  createWorktree?: boolean;
+  /**
+   * If set, create an empty *bare* directory at the worktree path
+   * instead of registering it as a git worktree. The runner's cleanup
+   * will then find a directory at the expected path but git will refuse
+   * `worktree remove` (not a registered worktree) — drives the
+   * graceful-failure branch the script must handle.
+   */
+  unregisteredWorktreeDir?: boolean;
+}
+
+export interface RunnerHarness {
+  repo: TempRepo;
+  /** Absolute path to the linked worktree (or the bare dir, depending on opts). */
+  worktreePath: string;
+  /** Branch the runner will be invoked for. */
+  branch: string;
+  /** Absolute path to the directory holding the platform-specific tool/gh shims. */
+  fakeBinDir: string;
+  /** Path to the runner script that matches the host platform. */
+  runnerScript: string;
+  /** Absolute path to the handoff repo root (passed as the runner's first arg). */
+  handoffRepoRoot: string;
+  /**
+   * Env to pass to the spawned runner. Already includes:
+   *  - `PATH` with `fakeBinDir` prepended (so the shims win)
+   *  - `HOME` / `USERPROFILE` redirected to a temp dir
+   *  - any extra entries the test passes via `extraEnv`
+   * Tests typically tweak `FAKE_TOOL_EXIT` / `FAKE_GH_PR_LIST_RESPONSE`
+   * here per case.
+   */
+  env: NodeJS.ProcessEnv;
+  /**
+   * Tear down everything this harness allocated. Safe to call multiple
+   * times; safe to call even after partial setup (each step is gated
+   * on what was actually created).
+   */
+  cleanup(): void;
+}
+
+// fileURLToPath handles the leading-slash quirk that
+// `new URL(...).pathname` introduces for Windows file URLs (`/C:/...`).
+const HANDOFF_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
+  const base = opts.base ?? 'dev';
+  const promptBody = opts.promptBody ?? '# Handoff stub prompt\n';
+  const createWorktree = opts.createWorktree ?? true;
+
+  // Real tempRepo (under SUITE_ROOT, hermetic, exit-time swept) so the
+  // runner exercises real git via the bun-cli subprocess.
+  const repo = createTempRepo({
+    remotes: { origin: 'https://example.invalid/test/repo.git' },
+  });
+
+  // Use the production worktreePath contract so cleanup paths line up
+  // exactly with what the CLI computes when invoked for the same branch.
+  const wt = worktreePath({ repoRoot: repo.path, branch: opts.branch });
+
+  // tempRepo.cleanup() sweeps `<repo.path>-*` siblings under SUITE_ROOT,
+  // but not the temp HOME or fakeBin dirs — those need their own cleanup
+  // tracking so a test that throws mid-setup still releases them.
+  const homeDir = mkdtempSync(join(tmpdir(), 'handoff-runner-home-'));
+  const fakeBinDir = mkdtempSync(join(tmpdir(), 'handoff-runner-bin-'));
+
+  let cleanedUp = false;
+  const harness: RunnerHarness = {
+    repo,
+    worktreePath: wt,
+    branch: opts.branch,
+    fakeBinDir,
+    runnerScript: join(
+      HANDOFF_REPO_ROOT,
+      'scripts',
+      opts.target === 'pwsh' ? 'handoff-runner.ps1' : 'handoff-runner.sh',
+    ),
+    handoffRepoRoot: HANDOFF_REPO_ROOT,
+    env: {},
+    cleanup() {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      // Each step independent — a failure in one shouldn't block the
+      // others. The exit-time SUITE_ROOT sweep is the backstop for
+      // tempRepo state if repo.cleanup throws.
+      const safe = (fn: () => void) => {
+        try {
+          fn();
+        } catch {
+          /* best-effort */
+        }
+      };
+      safe(() => rmSync(fakeBinDir, { recursive: true, force: true }));
+      safe(() => rmSync(homeDir, { recursive: true, force: true }));
+      safe(() => repo.cleanup());
+    },
+  };
+
+  try {
+    if (createWorktree) {
+      // -b creates the branch; the runner's cleanup is what later removes
+      // both worktree and branch. Use repo.git so we're operating in the
+      // main worktree (cwd doesn't get pinned by the test).
+      repo.git(['worktree', 'add', '-b', opts.branch, wt, base]);
+      writeFileSync(join(wt, 'PROMPT.md'), promptBody, 'utf8');
+    } else if (opts.unregisteredWorktreeDir) {
+      // No git worktree, just a bare directory at the expected path.
+      // existsSync(path) returns true; `git worktree remove` will fail
+      // because the path isn't a registered worktree — exercises the
+      // graceful-error path 62c1611 introduced.
+      mkdirSync(wt, { recursive: true });
+      writeFileSync(join(wt, 'PROMPT.md'), promptBody, 'utf8');
+    }
+
+    writeFakeShims({ fakeBinDir, target: opts.target });
+
+    harness.env = {
+      ...process.env,
+      PATH: `${fakeBinDir}${delimiter}${process.env.PATH ?? ''}`,
+      HOME: homeDir,
+      USERPROFILE: homeDir,
+      // Default both fake responses to the merged-PR happy path; tests
+      // override per-case before spawning. Empty string (instead of
+      // unset) so the shims don't hit a "variable not set" branch.
+      FAKE_TOOL_EXIT: '0',
+      FAKE_GH_PR_LIST_RESPONSE: JSON.stringify([{ number: 1 }]),
+    };
+
+    return harness;
+  } catch (err) {
+    harness.cleanup();
+    throw err;
+  }
+}
+
+function writeFakeShims(opts: { fakeBinDir: string; target: 'bash' | 'pwsh' }): void {
+  // The fake-shim pattern: a thin platform-native wrapper that delegates
+  // to bun running a TS file. Two reasons:
+  //   1. The TS impl is one source of truth for shim behaviour, regardless
+  //      of which interpreter spawns it (bash → bash shim → bun, cmd →
+  //      cmd shim → bun).
+  //   2. Behaviour is configured by env vars the test sets, so we don't
+  //      have to write a new shim per test case.
+  const fakeGhImpl = join(opts.fakeBinDir, 'fake-gh-impl.ts');
+  const fakeToolImpl = join(opts.fakeBinDir, 'fake-tool-impl.ts');
+
+  writeFileSync(
+    fakeGhImpl,
+    [
+      `// Fake gh: handles \`gh pr list --head <branch> --state merged --json number --limit 1\`.`,
+      `// FAKE_GH_FAIL=1 forces a non-zero exit with a canned stderr — drives`,
+      `// cleanup's status:'unknown' path without needing a network failure.`,
+      `// Any other gh subcommand exits non-zero so a wrong call is loud.`,
+      `const argv = process.argv.slice(2);`,
+      `if (process.env.FAKE_GH_FAIL === '1') {`,
+      `  process.stderr.write('fake-gh: forced failure (FAKE_GH_FAIL=1)\\n');`,
+      `  process.exit(2);`,
+      `}`,
+      `if (argv[0] === 'pr' && argv[1] === 'list') {`,
+      `  process.stdout.write(process.env.FAKE_GH_PR_LIST_RESPONSE ?? '[]');`,
+      `  process.exit(0);`,
+      `}`,
+      `process.stderr.write('fake-gh: unexpected argv: ' + argv.join(' ') + '\\n');`,
+      `process.exit(2);`,
+      ``,
+    ].join('\n'),
+    'utf8',
+  );
+
+  writeFileSync(
+    fakeToolImpl,
+    [
+      `// Fake tool (claude/codex/copilot): exits with FAKE_TOOL_EXIT.`,
+      `// Argv is ignored — the runner passes PROMPT.md content as one`,
+      `// arg, but tests don't care about the prompt body.`,
+      `const code = Number(process.env.FAKE_TOOL_EXIT ?? '0');`,
+      `process.exit(Number.isFinite(code) ? code : 0);`,
+      ``,
+    ].join('\n'),
+    'utf8',
+  );
+
+  // Always write both shim styles. The test target picks which one *the
+  // runner script* uses (bash reads the unix-shebang shim, pwsh resolves
+  // the .cmd via PATHEXT), but the runner spawns `bun cli.ts cleanup`
+  // which on Windows walks PATHEXT too — so even the bash matrix needs
+  // a .cmd shim for the bun subprocess's `gh` lookup. They have
+  // different filenames and don't collide.
+  writeFileSync(
+    join(opts.fakeBinDir, 'gh'),
+    `#!/usr/bin/env bash\nexec bun "${fakeGhImpl}" "$@"\n`,
+    'utf8',
+  );
+  writeFileSync(
+    join(opts.fakeBinDir, 'claude'),
+    `#!/usr/bin/env bash\nexec bun "${fakeToolImpl}" "$@"\n`,
+    'utf8',
+  );
+  writeFileSync(join(opts.fakeBinDir, 'gh.cmd'), `@echo off\r\nbun "${fakeGhImpl}" %*\r\n`, 'utf8');
+  writeFileSync(
+    join(opts.fakeBinDir, 'claude.cmd'),
+    `@echo off\r\nbun "${fakeToolImpl}" %*\r\n`,
+    'utf8',
+  );
+  // chmod is a no-op on Windows (NTFS doesn't honour POSIX modes), but
+  // bash on Linux/macOS needs the +x bit on the shebang shims.
+  chmodSync(join(opts.fakeBinDir, 'gh'), 0o755);
+  chmodSync(join(opts.fakeBinDir, 'claude'), 0o755);
+}
+
+/**
+ * Try to locate a usable interpreter. Returns the absolute path or
+ * `undefined` if none was found. Tests skip when undefined so a CI
+ * runner missing bash (very rare) or pwsh (linux/mac default) doesn't
+ * fail the suite.
+ */
+export function findInterpreter(name: 'bash' | 'pwsh'): string | undefined {
+  // Bun.which respects PATH and PATHEXT correctly on Windows.
+  const found = Bun.which(name);
+  if (found && existsSync(found)) return found;
+  return undefined;
+}
