@@ -16,19 +16,40 @@ interface TerminalCall {
   options: SpawnOptions;
 }
 
-let repo: TempRepo;
-let originalCwd: string;
-let homeDir: string;
+// Every cleanup-relevant handle is nullable so a partial `beforeEach`
+// failure (e.g. `mkdtemp` permission error before `createTempRepo` runs)
+// still leaves `afterEach` with a coherent picture of what to undo.
+let repo: TempRepo | undefined;
+let originalCwd: string | undefined;
+let homeDir: string | undefined;
 let savedHome: string | undefined;
 let savedUserProfile: string | undefined;
-let spawn: ScriptedSpawn;
+let envSaved = false;
+let spawn: ScriptedSpawn | undefined;
 let terminalCalls: TerminalCall[];
-let restoreTerminal: () => void;
+let restoreTerminal: (() => void) | undefined;
 
 const REPO_VIEW_ARGV = ['repo', 'view', '--json', 'defaultBranchRef'];
 const ISSUE_VIEW_FIELDS = 'number,title,body,labels,url';
 
 beforeEach(() => {
+  // Reset everything up front so a partial `beforeEach` failure leaves
+  // `afterEach` with the same baseline a fresh test would see (the watch
+  // runner reuses module state across reruns).
+  repo = undefined;
+  originalCwd = undefined;
+  homeDir = undefined;
+  savedHome = undefined;
+  savedUserProfile = undefined;
+  envSaved = false;
+  spawn = undefined;
+  terminalCalls = [];
+  restoreTerminal = undefined;
+
+  // Capture cwd first so even an early `createTempRepo` throw still has
+  // a value to chdir back to in afterEach.
+  originalCwd = process.cwd();
+
   // Real git, real worktree — but anchored under tempRepo's SUITE_ROOT so
   // teardown is hermetic. The CLI's `gh repo view --json defaultBranchRef`
   // is faked, so the bogus origin URL never gets dialed; remotes still
@@ -37,15 +58,17 @@ beforeEach(() => {
   repo = createTempRepo({
     remotes: { origin: 'https://example.invalid/test/repo.git' },
   });
-  originalCwd = process.cwd();
 
   // Redirect HOME / USERPROFILE so showFirstRunBanner and the telemetry
   // emit don't read or write the developer's real ~/.handoff/. Without
   // this, the suite would (a) create or mutate the user's config, and (b)
-  // pick up state from prior runs, making test order matter.
+  // pick up state from prior runs, making test order matter. Save *both*
+  // env vars before flipping either, then mark `envSaved` so afterEach
+  // knows whether the saved values are meaningful.
   homeDir = mkdtempSync(join(tmpdir(), 'handoff-cli-int-home-'));
   savedHome = process.env.HOME;
   savedUserProfile = process.env.USERPROFILE;
+  envSaved = true;
   process.env.HOME = homeDir;
   process.env.USERPROFILE = homeDir;
 
@@ -58,7 +81,6 @@ beforeEach(() => {
   // Capture terminal launches in-process. The CLI calls `openTerminal`
   // which would otherwise spawn a real wt/cmd/gnome-terminal/Terminal.app
   // window — disastrous in a test runner.
-  terminalCalls = [];
   restoreTerminal = __setTerminalSpawnForTesting(() => (command, args, options) => {
     terminalCalls.push({ command, args: [...args], options });
     const child = new EventEmitter() as EventEmitter & { unref: () => void };
@@ -70,27 +92,65 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // Restore cwd *before* teardown so the temp dirs aren't pinned by the
-  // process — Windows rmSync fails on a directory the process is in.
-  process.chdir(originalCwd);
-  restoreTerminal();
-  spawn.uninstall();
+  // Run every teardown step independently and capture errors. Without
+  // this, a throwing `spawn.uninstall()` (unmatched calls / leftover
+  // expectations) would leak env vars and temp dirs into the next test
+  // — devastating under `bun test --watch`. Re-throw the first captured
+  // error at the end so the failure still surfaces.
+  const errors: unknown[] = [];
+  const safe = (label: string, fn: () => void) => {
+    try {
+      fn();
+    } catch (e) {
+      errors.push(new Error(`afterEach: ${label} failed: ${(e as Error).message ?? e}`));
+    }
+  };
 
-  if (savedHome === undefined) delete process.env.HOME;
-  else process.env.HOME = savedHome;
-  if (savedUserProfile === undefined) delete process.env.USERPROFILE;
-  else process.env.USERPROFILE = savedUserProfile;
+  // cwd restore first — Windows rmSync fails on a directory the process
+  // is sitting inside, so this needs to land before any temp-dir cleanup.
+  if (originalCwd !== undefined) safe('chdir(originalCwd)', () => process.chdir(originalCwd!));
 
-  rmSync(homeDir, { recursive: true, force: true });
-  repo.cleanup();
+  if (restoreTerminal) safe('restoreTerminal()', () => restoreTerminal!());
+  if (spawn) safe('spawn.uninstall()', () => spawn!.uninstall());
+
+  // Env restoration runs unconditionally when the save was completed —
+  // these are simple property writes that can't really fail, but being
+  // strict about ordering (don't restore if we didn't save) keeps the
+  // partial-setup case correct.
+  if (envSaved) {
+    if (savedHome === undefined) delete process.env.HOME;
+    else process.env.HOME = savedHome;
+    if (savedUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = savedUserProfile;
+  }
+
+  if (homeDir) safe('rmSync(homeDir)', () => rmSync(homeDir!, { recursive: true, force: true }));
+  if (repo) safe('repo.cleanup()', () => repo!.cleanup());
+
+  if (errors.length > 0) throw errors[0];
 });
 
+/**
+ * Unwrap the nullable fixture handles after `beforeEach`. If either is
+ * still undefined, the setup didn't complete — fail the test fast rather
+ * than letting a `repo!` blow up halfway through with a less-readable
+ * error.
+ */
+function fixtures(): { repo: TempRepo; spawn: ScriptedSpawn } {
+  if (!repo || !spawn) {
+    throw new Error('cli.integration: beforeEach did not complete; fixtures are unset');
+  }
+  return { repo, spawn };
+}
+
 function expectedWorktreePath(branchTail: string): string {
+  const { repo } = fixtures();
   return join(dirname(repo.path), `${basename(repo.path)}-${branchTail}`);
 }
 
 describe('cli integration — happy path', () => {
   it('handoff claude #7: creates worktree + branch, writes PROMPT.md, launches terminal', async () => {
+    const { repo, spawn } = fixtures();
     spawn.expectGh(REPO_VIEW_ARGV, { defaultBranchRef: { name: 'dev' } });
     spawn.expectGh(['issue', 'view', '7', '--json', ISSUE_VIEW_FIELDS], {
       number: 7,
@@ -148,6 +208,7 @@ describe('cli integration — happy path', () => {
 
 describe('cli integration — fleet mode', () => {
   it('handoff claude #7 #8: creates two worktrees and two terminal launches', async () => {
+    const { spawn } = fixtures();
     // defaultBranch is fetched once per invocation, then per-issue fetches
     // happen in order. Each gh expectation consumes FIFO — register all
     // three before running.
@@ -186,6 +247,7 @@ describe('cli integration — fleet mode', () => {
 
 describe('cli integration — cleanup', () => {
   it('handoff cleanup <branch> removes the worktree and branch when the PR is merged', async () => {
+    const { repo, spawn } = fixtures();
     // Pre-create the worktree as if a previous handoff had run. We can't
     // ride the same flow as the happy-path test because cliMain returns
     // before the worktree is "released" (the runner script normally calls
