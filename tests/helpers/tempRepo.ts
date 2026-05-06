@@ -228,7 +228,15 @@ export function createTempRepo(opts: TempRepoOptions = {}): TempRepo {
     }
   } catch (err) {
     cleanedUp = true;
-    rmSync(path, { recursive: true, force: true });
+    // Best-effort scrub: don't let an rmSync failure (Windows EBUSY/EPERM,
+    // antivirus holding a handle) overwrite the underlying setup error
+    // the caller actually needs to diagnose. SUITE_ROOT's exit-time sweep
+    // is the backstop for any orphan that survives this attempt.
+    try {
+      rmSync(path, { recursive: true, force: true });
+    } catch {
+      /* swallow — surface the original setup failure below */
+    }
     throw err;
   }
 
