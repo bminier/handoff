@@ -219,7 +219,11 @@ describe('cleanup — production wiring (no opts.deps)', () => {
     //     expected `gh pr list ...` invocation
     //   - the message containing the stub's stderr text confirms
     //     cleanup's GhError handling consumed that exact failure
-    expect(spawn.calls).toEqual([{ command: 'gh', args: expectedArgv, cwd: undefined }]);
+    // cwd MUST be the passed repoRoot, not undefined: the runner scripts
+    // invoke `handoff cleanup` from inside the worktree being removed, and
+    // an inherited cwd would target the wrong (or doomed) directory once
+    // git starts mutating worktrees.
+    expect(spawn.calls).toEqual([{ command: 'gh', args: expectedArgv, cwd: '/work/handoff' }]);
     expect(result.status).toBe('unknown');
     expect(result.message).toContain('Could not check PR status');
     expect(result.message).toContain('gh test stub: not authenticated');
@@ -270,12 +274,20 @@ describe('cleanup — production wiring (no opts.deps)', () => {
       expect(result.message).toContain(`deleted branch ${branch}`);
       // All four subprocesses were issued in the order cleanup.ts walks
       // them: gh first, then worktree remove (gated by existsSync), then
-      // branchExists, then deleteBranch.
-      expect(spawn.calls.map((c) => `${c.command} ${c.args.join(' ')}`)).toEqual([
-        `gh pr list --head ${branch} --state merged --json number --limit 1`,
-        `git worktree remove --force ${worktreeDir}`,
-        `git show-ref --verify --quiet refs/heads/${branch}`,
-        `git branch -D ${branch}`,
+      // branchExists, then deleteBranch. Every call's cwd must be the
+      // passed repoRoot — production cleanup runs from inside the doomed
+      // worktree, so a regression that drops the cwd-binding here would
+      // re-break merged-PR cleanup the same way the original bug did.
+      expect(
+        spawn.calls.map((c) => ({ cmd: `${c.command} ${c.args.join(' ')}`, cwd: c.cwd })),
+      ).toEqual([
+        {
+          cmd: `gh pr list --head ${branch} --state merged --json number --limit 1`,
+          cwd: repoRoot,
+        },
+        { cmd: `git worktree remove --force ${worktreeDir}`, cwd: repoRoot },
+        { cmd: `git show-ref --verify --quiet refs/heads/${branch}`, cwd: repoRoot },
+        { cmd: `git branch -D ${branch}`, cwd: repoRoot },
       ]);
     } finally {
       rmSync(parent, { recursive: true, force: true });

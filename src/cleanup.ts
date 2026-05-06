@@ -20,13 +20,25 @@ export interface CleanupDeps {
   existsSync: (path: string) => boolean;
 }
 
-const defaultDeps: CleanupDeps = {
-  prMergedFor: ghPrMergedFor,
-  branchExists: gitBranchExists,
-  removeWorktree: gitRemoveWorktree,
-  deleteBranch: gitDeleteBranch,
-  existsSync: fsExistsSync,
-};
+/**
+ * Build the production deps wired to run from `repoRoot`.
+ *
+ * The runner scripts launch `handoff cleanup` with cwd set to the worktree
+ * being removed. Without pinning cwd, `git worktree remove --force <path>`
+ * is invoked from inside that doomed worktree (and `git branch -D <branch>`
+ * targets a branch that's still checked out there) — both fail. Bind the
+ * git/gh wrappers to `repoRoot` so production cleanup runs from outside
+ * the worktree it's deleting.
+ */
+function buildDefaultDeps(repoRoot: string): CleanupDeps {
+  return {
+    prMergedFor: (branch) => ghPrMergedFor(branch, { cwd: repoRoot }),
+    branchExists: (branch) => gitBranchExists(branch, { cwd: repoRoot }),
+    removeWorktree: (path) => gitRemoveWorktree(path, { cwd: repoRoot }),
+    deleteBranch: (branch) => gitDeleteBranch(branch, { cwd: repoRoot }),
+    existsSync: fsExistsSync,
+  };
+}
 
 export interface CleanupOpts {
   repoRoot: string;
@@ -40,7 +52,7 @@ export interface CleanupOpts {
 }
 
 export async function cleanup(branch: string, opts: CleanupOpts): Promise<CleanupResult> {
-  const deps: CleanupDeps = opts.deps ?? defaultDeps;
+  const deps: CleanupDeps = opts.deps ?? buildDefaultDeps(opts.repoRoot);
   const path = worktreePath({ repoRoot: opts.repoRoot, branch });
 
   let merged: boolean;
