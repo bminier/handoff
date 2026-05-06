@@ -51,6 +51,12 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
   // it's given for the duration of the parent's life, which pins the
   // worktree directory and breaks the later `git worktree remove`.
   // The bash matrix has the same fix and the same justification.
+  //
+  // Escape single quotes in interpolated paths: PS's single-quoted
+  // string literal escape is `''` (two single quotes). A raw `'`
+  // inside a temp path (rare but possible — e.g. a Windows username
+  // like `O'Connor`) would otherwise close the literal early and
+  // corrupt the command.
   return spawnSync(
     pwsh!,
     [
@@ -58,8 +64,8 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
       '-ExecutionPolicy',
       'Bypass',
       '-Command',
-      `Set-Location -LiteralPath '${h.worktreePath}'; ` +
-        `& '${h.runnerScript}' '${h.handoffRepoRoot}' 'claude' '${h.branch}'; ` +
+      `Set-Location -LiteralPath '${psQuote(h.worktreePath)}'; ` +
+        `& '${psQuote(h.runnerScript)}' '${psQuote(h.handoffRepoRoot)}' 'claude' '${psQuote(h.branch)}'; ` +
         `exit $LASTEXITCODE`,
     ],
     {
@@ -70,6 +76,10 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
       stdio: ['pipe', 'pipe', 'pipe'],
     },
   );
+}
+
+function psQuote(s: string): string {
+  return s.replace(/'/g, "''");
 }
 
 function expectExit(
