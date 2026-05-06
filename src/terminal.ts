@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { platform } from 'node:os';
 
 export class TerminalError extends Error {
@@ -8,6 +8,12 @@ export class TerminalError extends Error {
   }
 }
 
+export type TerminalSpawnFn = (
+  command: string,
+  args: readonly string[],
+  options: SpawnOptions,
+) => ChildProcess;
+
 export interface OpenTerminalInput {
   /** Directory the new terminal should start in. */
   cwd: string;
@@ -15,6 +21,14 @@ export interface OpenTerminalInput {
   scriptPath: string;
   /** Optional argv to pass to the script. */
   args?: readonly string[];
+  /**
+   * @internal Test-only injection seam. `openTerminal` shells out via its
+   * own detached spawn (not `run.ts`), so `scriptedSpawn` doesn't reach it
+   * — tests pass a fake here to assert the per-platform argv shape and
+   * the fallback chain. Production callers omit this; the wiring is
+   * documented in `tests/README.md`.
+   */
+  spawn?: TerminalSpawnFn;
 }
 
 export type Platform = 'win32' | 'darwin' | 'linux';
@@ -107,11 +121,23 @@ function escapeForApplescript(s: string): string {
 }
 
 export async function openTerminal(input: OpenTerminalInput): Promise<void> {
-  const plat = platform();
+  return openTerminalOn(platform(), input);
+}
+
+/**
+ * @internal Platform-injectable form of `openTerminal`. Production code calls
+ * `openTerminal` (which reads `os.platform()`); tests call this directly to
+ * exercise the per-platform fallback chain on any host.
+ */
+export async function openTerminalOn(
+  plat: NodeJS.Platform,
+  input: OpenTerminalInput,
+): Promise<void> {
   if (plat !== 'win32' && plat !== 'darwin' && plat !== 'linux') {
     throw new TerminalError(`Unsupported platform: ${plat}`);
   }
 
+  const spawnImpl: TerminalSpawnFn = input.spawn ?? nodeSpawn;
   const candidates: string[] =
     plat === 'win32'
       ? ['wt', 'cmd']
@@ -123,7 +149,7 @@ export async function openTerminal(input: OpenTerminalInput): Promise<void> {
   for (const candidate of candidates) {
     const spec = buildLaunchSpec(plat, { ...input, terminal: candidate });
     try {
-      await spawnDetached(spec);
+      await spawnDetached(spawnImpl, spec);
       return;
     } catch (err) {
       lastErr = err instanceof Error ? err : new Error(String(err));
@@ -132,9 +158,9 @@ export async function openTerminal(input: OpenTerminalInput): Promise<void> {
   throw new TerminalError(`Failed to open a terminal window. Last error: ${lastErr?.message}`);
 }
 
-function spawnDetached(spec: LaunchSpec): Promise<void> {
+function spawnDetached(spawnImpl: TerminalSpawnFn, spec: LaunchSpec): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(spec.command, spec.args, {
+    const child = spawnImpl(spec.command, spec.args, {
       detached: true,
       stdio: 'ignore',
       shell: false,
