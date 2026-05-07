@@ -1,7 +1,7 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import type { Readable } from 'node:stream';
 
-import { debug } from './logger.ts';
+import { debug, isDebug } from './logger.ts';
 
 export interface RunResult {
   stdout: string;
@@ -88,7 +88,7 @@ export function run(
   args: readonly string[],
   opts: RunOpts = {},
 ): Promise<RunResult> {
-  debug(`spawn: ${command} ${args.join(' ')}`);
+  if (isDebug()) debug(`spawn: ${command} ${args.join(' ')}`);
   return new Promise((resolve, reject) => {
     const child = spawnImpl(command, args, {
       cwd: opts.cwd,
@@ -108,7 +108,7 @@ export function run(
     child.on('error', reject);
     child.on('close', (code, signal) => {
       const exitCode = code ?? (signal ? 128 : 0);
-      debug(`exit ${exitCode}: ${command} ${args.join(' ')}`);
+      if (isDebug()) debug(`exit ${exitCode}: ${command} ${args.join(' ')}`);
       const result: RunResult = { stdout, stderr, exitCode };
       if (code !== 0) {
         reject(new RunError(command, args, result));

@@ -39,7 +39,7 @@ export async function mainRepoRoot(): Promise<string> {
   try {
     ({ stdout } = await run('git', ['rev-parse', '--git-common-dir']));
   } catch (err) {
-    if (err instanceof RunError) {
+    if (err instanceof RunError && (err.exitCode === 128 || /not a git repo/i.test(err.stderr))) {
       throw new GitError(
         'not inside a git repository',
         'Run handoff from inside a git repo (cd into one, or `git init`).',

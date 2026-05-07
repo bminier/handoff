@@ -2,8 +2,8 @@ import { HandoffError } from './errors.ts';
 import { RunError, run } from './run.ts';
 
 export class GhError extends HandoffError {
-  constructor(message: string) {
-    super(message, 2);
+  constructor(message: string, exitCode: 1 | 2 = 2) {
+    super(message, exitCode);
     this.name = 'GhError';
   }
 }
@@ -26,9 +26,11 @@ async function gh(args: readonly string[], opts: GhOpts = {}): Promise<string> {
     return stdout;
   } catch (err) {
     if (err instanceof RunError) {
-      const hint = /authentication/i.test(err.stderr) ? ' (run `gh auth login`)' : '';
+      const isAuthFailure = /authentication/i.test(err.stderr);
+      const hint = isAuthFailure ? ' (run `gh auth login`)' : '';
       throw new GhError(
         `gh ${args.join(' ')} failed${hint}: ${err.stderr.trim() || err.stdout.trim()}`,
+        isAuthFailure ? 1 : 2,
       );
     }
     throw err;

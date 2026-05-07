@@ -13,6 +13,10 @@ export function verbose(msg: string): void {
   if (_verbose || _debug) console.error(`[handoff:verbose] ${msg}`);
 }
 
+export function isDebug(): boolean {
+  return _debug;
+}
+
 /** Debug-level trace — printed only when --debug is active. */
 export function debug(msg: string): void {
   if (_debug) console.error(`[handoff:debug] ${msg}`);

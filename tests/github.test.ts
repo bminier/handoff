@@ -95,7 +95,7 @@ describe('fetchIssue', () => {
     }
 
     expect(err).toBeInstanceOf(GhError);
-    expect((err as HandoffError).exitCode).toBe(2);
+    expect((err as HandoffError).exitCode).toBe(1);
     expect((err as Error).message).toContain('(run `gh auth login`)');
   });
 
