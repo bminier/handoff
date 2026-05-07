@@ -1,8 +1,9 @@
+import { HandoffError } from './errors.ts';
 import { RunError, run } from './run.ts';
 
-export class GhError extends Error {
+export class GhError extends HandoffError {
   constructor(message: string) {
-    super(message);
+    super(message, 2);
     this.name = 'GhError';
   }
 }

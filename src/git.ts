@@ -1,9 +1,10 @@
 import { dirname, resolve } from 'node:path';
-import { run, type RunOpts } from './run.ts';
+import { HandoffError } from './errors.ts';
+import { run, RunError, type RunOpts } from './run.ts';
 
-export class GitError extends Error {
-  constructor(message: string) {
-    super(message);
+export class GitError extends HandoffError {
+  constructor(message: string, hint?: string) {
+    super(message, 2, hint);
     this.name = 'GitError';
   }
 }
@@ -34,7 +35,18 @@ export async function currentRepoRoot(): Promise<string> {
  * handoff is invoked from inside a previous handoff's worktree.
  */
 export async function mainRepoRoot(): Promise<string> {
-  const { stdout } = await run('git', ['rev-parse', '--git-common-dir']);
+  let stdout: string;
+  try {
+    ({ stdout } = await run('git', ['rev-parse', '--git-common-dir']));
+  } catch (err) {
+    if (err instanceof RunError) {
+      throw new GitError(
+        'not inside a git repository',
+        'Run handoff from inside a git repo (cd into one, or `git init`).',
+      );
+    }
+    throw err;
+  }
   const gitDir = stdout.trim();
   if (!gitDir) throw new GitError('git rev-parse --git-common-dir returned empty output');
   // Pre-2.31, git returns this relative to cwd; resolve in TS to stay

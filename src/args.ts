@@ -35,9 +35,11 @@ export type TelemetryArgs =
 
 export type CliInvocation = ParsedArgs | CleanupArgs | TelemetryArgs;
 
-export class ArgsError extends Error {
+import { HandoffError } from './errors.ts';
+
+export class ArgsError extends HandoffError {
   constructor(message: string) {
-    super(message);
+    super(message, 1);
     this.name = 'ArgsError';
   }
 }

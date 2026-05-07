@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import type { Tool } from './args.ts';
+import { HandoffError } from './errors.ts';
 
 export const HOME_DIRNAME = '.handoff';
 export const CONFIG_FILENAME = 'config.json';
@@ -22,9 +23,9 @@ export interface TelemetryConfig {
   firstRunBannerSeen: boolean;
 }
 
-export class TelemetryConfigError extends Error {
+export class TelemetryConfigError extends HandoffError {
   constructor(message: string) {
-    super(message);
+    super(message, 1);
     this.name = 'TelemetryConfigError';
   }
 }
