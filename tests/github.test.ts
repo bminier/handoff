@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { GhError, defaultBranch, fetchIssue, prMergedFor } from '../src/github.ts';
+import type { HandoffError } from '../src/errors.ts';
 import { createScriptedSpawn, type ScriptedSpawn } from './helpers/scriptedSpawn.ts';
 
 let spawn: ScriptedSpawn;
@@ -69,6 +70,7 @@ describe('fetchIssue', () => {
     }
 
     expect(err).toBeInstanceOf(GhError);
+    expect((err as HandoffError).exitCode).toBe(2);
     expect((err as Error).message).toContain('gh issue view 7');
     expect((err as Error).message).toContain('Could not resolve to an Issue');
     // No auth-hint on a 404 — the regex looks for /authentication/i in stderr.
@@ -93,6 +95,7 @@ describe('fetchIssue', () => {
     }
 
     expect(err).toBeInstanceOf(GhError);
+    expect((err as HandoffError).exitCode).toBe(2);
     expect((err as Error).message).toContain('(run `gh auth login`)');
   });
 
