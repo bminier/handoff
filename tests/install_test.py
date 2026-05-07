@@ -5,6 +5,8 @@ pytest's `tmp_path` fixture.
 """
 from __future__ import annotations
 
+import importlib.util
+import shlex
 import sys
 from contextlib import ExitStack
 from pathlib import Path
@@ -12,9 +14,19 @@ from unittest.mock import patch
 
 import pytest
 
-# install.py lives in scripts/, not a package — add it to the import path.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
-import install  # noqa: E402
+# Load install.py via importlib so we don't mutate sys.path globally.
+_INSTALL_PATH = Path(__file__).resolve().parent.parent / "scripts" / "install.py"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _load_install():
+    spec = importlib.util.spec_from_file_location("handoff_install", _INSTALL_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+install = _load_install()
 
 PLACEHOLDER = install.PLACEHOLDER
 
@@ -95,6 +107,16 @@ def test_source_not_found_exits(tmp_path: Path) -> None:
     assert exc_info.value.code
 
 
+def test_against_real_template(tmp_path: Path) -> None:
+    """install_command() stays compatible with the shipped handoff.md template."""
+    real_source = _REPO_ROOT / ".claude" / "commands" / "handoff.md"
+    repo_root = tmp_path / "repo"
+    content = _run(tmp_path, repo_root=repo_root, source_cmd=real_source)
+    assert PLACEHOLDER not in content
+    cli_path = (repo_root / "src" / "cli.ts").as_posix()
+    assert cli_path in content
+
+
 # ---------------------------------------------------------------------------
 # shlex.quote boundary cases
 # ---------------------------------------------------------------------------
@@ -107,23 +129,19 @@ def test_path_with_spaces_is_single_quoted(tmp_path: Path) -> None:
 
 
 def test_path_with_dollar_sign(tmp_path: Path) -> None:
-    """A $ in the path is safely quoted so the shell won't expand it."""
+    """A $ in the path must be single-quoted so the shell won't expand it."""
     repo_root = tmp_path / "my$repo"
     content = _run(tmp_path, repo_root=repo_root)
     cli_path = (repo_root / "src" / "cli.ts").as_posix()
-    # shlex.quote wraps in single quotes; the raw path is still a substring.
-    assert cli_path in content
-    assert PLACEHOLDER not in content
+    assert shlex.quote(cli_path) in content
 
 
 def test_path_with_single_quote(tmp_path: Path) -> None:
     """shlex.quote handles embedded single quotes via the 'a'\"'\"'b' idiom."""
     repo_root = tmp_path / "brian's repo"
     content = _run(tmp_path, repo_root=repo_root)
-    # The raw path is not a contiguous substring after shlex-quoting,
-    # but the placeholder must be gone and the file must be non-empty.
-    assert PLACEHOLDER not in content
-    assert content
+    cli_path = (repo_root / "src" / "cli.ts").as_posix()
+    assert shlex.quote(cli_path) in content
 
 
 @pytest.mark.skipif(
