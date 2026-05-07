@@ -198,4 +198,32 @@ describe('parseInvocation', () => {
       );
     });
   });
+
+  describe('global flags (--verbose / --debug)', () => {
+    it('accepts --verbose before the tool name', () => {
+      const out = parseInvocation(['--verbose', 'claude', '#1']);
+      expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 1 }], loop: false });
+    });
+
+    it('accepts --debug after the tool name and before refs', () => {
+      const out = parseInvocation(['claude', '--debug', '#2']);
+      expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 2 }], loop: false });
+    });
+
+    it('preserves --verbose in a free-form description verbatim', () => {
+      // The whole point of this fix: --verbose must NOT be stripped when it
+      // appears after the free-form boundary.
+      const out = parseInvocation(['claude', 'fix', 'the', '--verbose', 'flag']);
+      expect(out).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'freeform', text: 'fix the --verbose flag' }],
+        loop: false,
+      });
+    });
+
+    it('accepts multiple global flags mixed with --loop and refs', () => {
+      const out = parseInvocation(['--verbose', 'claude', '--debug', '--loop', '#3']);
+      expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 3 }], loop: true });
+    });
+  });
 });

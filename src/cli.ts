@@ -36,23 +36,26 @@ import {
 } from './telemetry.ts';
 
 async function main(rawArgv: readonly string[]): Promise<number> {
-  // Strip global flags before routing so parseInvocation never sees them.
-  const argv = rawArgv.filter((a) => a !== '--verbose' && a !== '--debug');
+  // Detect global flags before routing. Do NOT filter rawArgv before passing
+  // to parseInvocation — that would mangle free-form descriptions that
+  // happen to contain a literal `--verbose` or `--debug` token. Instead,
+  // parseInvocation's scanning loop consumes them when they appear in flag
+  // position (same as --loop), preserving free-form text verbatim.
   setVerbose(rawArgv.includes('--verbose'));
   setDebug(rawArgv.includes('--debug'));
 
-  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
+  if (rawArgv.length === 0 || rawArgv[0] === '--help' || rawArgv[0] === '-h') {
     console.log(HELP);
     return 0;
   }
-  if (argv[0] === '--version' || argv[0] === '-v') {
+  if (rawArgv[0] === '--version' || rawArgv[0] === '-v') {
     console.log(VERSION);
     return 0;
   }
 
   let invocation;
   try {
-    invocation = parseInvocation(argv);
+    invocation = parseInvocation(rawArgv);
   } catch (err) {
     if (err instanceof ArgsError) {
       console.error(`error: ${err.message}\n`);

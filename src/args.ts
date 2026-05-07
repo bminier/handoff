@@ -75,20 +75,33 @@ function parseIssueToken(
   return null;
 }
 
+function isGlobalFlag(tok: string): boolean {
+  return tok === '--verbose' || tok === '--debug';
+}
+
 export function parseInvocation(argv: readonly string[]): CliInvocation {
-  if (argv.length === 0) {
+  // Skip any leading --verbose/--debug before the tool/command name so
+  // `handoff --verbose claude …` works. main() detects these flags via
+  // rawArgv.includes() before this call — we just need to not choke on them.
+  let start = 0;
+  while (start < argv.length && isGlobalFlag(argv[start]!)) {
+    start += 1;
+  }
+  const trimmed = start === 0 ? argv : argv.slice(start);
+
+  if (trimmed.length === 0) {
     throw new ArgsError(
       'No arguments provided. Usage: handoff <tool> <ref...> | handoff cleanup <branch>',
     );
   }
 
-  const head = argv[0];
+  const head = trimmed[0];
   if (head === undefined) {
     throw new ArgsError('Empty arguments.');
   }
 
   if (head === 'cleanup') {
-    const branch = argv[1];
+    const branch = trimmed[1];
     if (branch === undefined || branch.trim() === '') {
       throw new ArgsError('Usage: handoff cleanup <branch>');
     }
@@ -96,7 +109,7 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   }
 
   if (head === 'telemetry') {
-    return parseTelemetry(argv.slice(1));
+    return parseTelemetry(trimmed.slice(1));
   }
 
   if (!isTool(head)) {
@@ -105,7 +118,7 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     );
   }
 
-  const rest = argv.slice(1);
+  const rest = trimmed.slice(1);
   if (rest.length === 0) {
     throw new ArgsError(
       `Missing reference. Usage: handoff ${head} <ref...> ` +
@@ -113,11 +126,11 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     );
   }
 
-  // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop` is the
-  // flag and may appear anywhere among the issue refs (before, between, after).
+  // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop`,
+  // `--verbose`, and `--debug` may appear anywhere among the issue refs.
   // The first token that is neither a flag nor an issue-ref pattern flips us
   // into free-form mode, and from there everything (including a literal
-  // `--loop`) becomes part of the description.
+  // `--loop` or `--verbose`) becomes part of the description verbatim.
   let loop = false;
   const refs: Ref[] = [];
   let i = 0;
@@ -125,6 +138,12 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     const tok = rest[i];
     if (tok === '--loop') {
       loop = true;
+      i += 1;
+      continue;
+    }
+    // Global flags consumed silently in scanning mode; main() reads them from
+    // rawArgv.includes() before this function is called.
+    if (isGlobalFlag(tok!)) {
       i += 1;
       continue;
     }
