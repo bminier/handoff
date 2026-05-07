@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import importlib.util
 import shlex
-import sys
 from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
@@ -144,10 +143,6 @@ def test_path_with_single_quote(tmp_path: Path) -> None:
     assert shlex.quote(cli_path) in content
 
 
-@pytest.mark.skipif(
-    sys.platform == "win32",
-    reason="backtick is not a valid Windows path character",
-)
 def test_backtick_in_path_rejected(tmp_path: Path) -> None:
     # The fake root need not exist on disk — install_command() bails before
     # any REPO_ROOT filesystem access when the backtick check fires.
