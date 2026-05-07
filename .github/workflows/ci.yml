@@ -40,12 +40,7 @@ jobs:
         # in CI exactly the way it is locally.
         run: bun run test
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Install pytest
-        run: python -m pip install pytest
+      - uses: astral-sh/setup-uv@v5
 
       - name: Python tests
-        run: python -m pytest tests/install_test.py -v
+        run: uv run pytest tests/install_test.py -v
