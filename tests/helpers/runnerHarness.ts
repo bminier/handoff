@@ -151,7 +151,7 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
     // state it wants at `wt` (e.g. mkdir'ing an empty directory to
     // exercise the "PROMPT.md not found" branch).
 
-    writeFakeShims({ fakeBinDir, target: opts.target });
+    writeFakeShims({ fakeBinDir });
 
     // On Windows, environment variables are case-insensitive in the OS
     // but spread of `process.env` produces a plain object with whatever
@@ -185,7 +185,7 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
   }
 }
 
-function writeFakeShims(opts: { fakeBinDir: string; target: 'bash' | 'pwsh' }): void {
+function writeFakeShims(opts: { fakeBinDir: string }): void {
   const isWin = process.platform === 'win32';
   // The fake-shim pattern: a thin platform-native wrapper that delegates
   // to bun running a TS file. Two reasons:
