@@ -93,17 +93,18 @@ def test_missing_placeholder_exits(tmp_path: Path) -> None:
     src = _source(tmp_path, body="no placeholder here")
     with pytest.raises(SystemExit) as exc_info:
         _run(tmp_path, repo_root=tmp_path / "repo", source_cmd=src)
-    assert exc_info.value.code
+    msg = str(exc_info.value.code)
+    assert "expected" in msg
+    assert PLACEHOLDER in msg
 
 
 def test_source_not_found_exits(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.md"
     with pytest.raises(SystemExit) as exc_info:
-        _run(
-            tmp_path,
-            repo_root=tmp_path / "repo",
-            source_cmd=tmp_path / "missing.md",
-        )
-    assert exc_info.value.code
+        _run(tmp_path, repo_root=tmp_path / "repo", source_cmd=missing)
+    msg = str(exc_info.value.code)
+    assert "source slash command not found" in msg
+    assert str(missing) in msg
 
 
 def test_against_real_template(tmp_path: Path) -> None:
