@@ -41,6 +41,10 @@ yarn-error.log*
 coverage/
 *.lcov
 
+# Python
+__pycache__/
+.pytest_cache/
+
 # Misc
 .cache/
 .obsidian/
