@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { ArgsError, parseInvocation } from '../src/args.ts';
+import { ArgsError, extractGlobalFlags, parseInvocation } from '../src/args.ts';
 
 describe('parseInvocation', () => {
   it('parses a single #N reference', () => {
@@ -225,5 +225,42 @@ describe('parseInvocation', () => {
       const out = parseInvocation(['--verbose', 'claude', '--debug', '--loop', '#3']);
       expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 3 }], loop: true });
     });
+  });
+});
+
+describe('extractGlobalFlags', () => {
+  it('detects --verbose before the tool name', () => {
+    expect(extractGlobalFlags(['--verbose', 'claude', '#1'])).toEqual({
+      verbose: true,
+      debug: false,
+    });
+  });
+
+  it('detects --debug between tool name and issue ref', () => {
+    expect(extractGlobalFlags(['claude', '--debug', '#1'])).toEqual({
+      verbose: false,
+      debug: true,
+    });
+  });
+
+  it('does NOT detect --verbose that appears inside a free-form description', () => {
+    // "fix the --verbose flag" → freeform starts at "fix"; --verbose is part
+    // of the description and must not enable verbose mode.
+    expect(extractGlobalFlags(['claude', 'fix', 'the', '--verbose', 'flag'])).toEqual({
+      verbose: false,
+      debug: false,
+    });
+  });
+
+  it('detects flags before freeform starts even when freeform contains them too', () => {
+    // --verbose before "fix" is a flag; --verbose after is freeform text.
+    expect(extractGlobalFlags(['claude', '--verbose', 'fix', 'the', '--verbose', 'flag'])).toEqual({
+      verbose: true,
+      debug: false,
+    });
+  });
+
+  it('returns false/false for empty argv', () => {
+    expect(extractGlobalFlags([])).toEqual({ verbose: false, debug: false });
   });
 });

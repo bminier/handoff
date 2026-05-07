@@ -79,10 +79,71 @@ function isGlobalFlag(tok: string): boolean {
   return tok === '--verbose' || tok === '--debug';
 }
 
+/**
+ * Walk argv with the same scanning-mode logic as parseInvocation and return
+ * which global flags were seen **before** free-form mode started. This is the
+ * authoritative detection path — rawArgv.includes() would fire even for a
+ * literal `--verbose` inside a free-form task description.
+ *
+ * Mirrors the scanning loop in parseInvocation: leading flags, then
+ * `--loop`/`--verbose`/`--debug`/issue-refs in any order, stopping at the
+ * first token that triggers free-form mode.
+ */
+export function extractGlobalFlags(argv: readonly string[]): { verbose: boolean; debug: boolean } {
+  let verbose = false;
+  let debug = false;
+  let i = 0;
+
+  // Consume leading global flags before the tool/command name.
+  while (i < argv.length && isGlobalFlag(argv[i]!)) {
+    if (argv[i] === '--verbose') verbose = true;
+    else debug = true;
+    i++;
+  }
+
+  // Skip the tool/command name token.
+  if (i >= argv.length) return { verbose, debug };
+  i++;
+
+  // Scan the refs region — stop at the first free-form token.
+  while (i < argv.length) {
+    const tok = argv[i]!;
+    if (tok === '--verbose') {
+      verbose = true;
+      i++;
+      continue;
+    }
+    if (tok === '--debug') {
+      debug = true;
+      i++;
+      continue;
+    }
+    if (tok === '--loop') {
+      i++;
+      continue;
+    }
+    // Issue ref: #N
+    if (/^#\d+$/.test(tok)) {
+      i++;
+      continue;
+    }
+    // Issue ref: "Issue #N" (two tokens)
+    if (/^issue$/i.test(tok)) {
+      const next = argv[i + 1];
+      if (next !== undefined && /^#?\d+$/.test(next)) {
+        i += 2;
+        continue;
+      }
+    }
+    // Anything else is the start of free-form mode — stop.
+    break;
+  }
+
+  return { verbose, debug };
+}
+
 export function parseInvocation(argv: readonly string[]): CliInvocation {
-  // Skip any leading --verbose/--debug before the tool/command name so
-  // `handoff --verbose claude …` works. main() detects these flags via
-  // rawArgv.includes() before this call — we just need to not choke on them.
+  // Skip any leading --verbose/--debug before the tool/command name.
   let start = 0;
   while (start < argv.length && isGlobalFlag(argv[start]!)) {
     start += 1;

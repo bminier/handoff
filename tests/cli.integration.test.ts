@@ -245,6 +245,23 @@ describe('cli integration — fleet mode', () => {
   });
 });
 
+describe('cli integration — global flag routing', () => {
+  it('--verbose --help prints help and exits 0', async () => {
+    const exitCode = await cliMain(['--verbose', '--help']);
+    expect(exitCode).toBe(0);
+  });
+
+  it('--debug -h prints help and exits 0', async () => {
+    const exitCode = await cliMain(['--debug', '-h']);
+    expect(exitCode).toBe(0);
+  });
+
+  it('--verbose --version prints version and exits 0', async () => {
+    const exitCode = await cliMain(['--verbose', '--version']);
+    expect(exitCode).toBe(0);
+  });
+});
+
 describe('cli integration — cleanup', () => {
   it('handoff cleanup <branch> removes the worktree and branch when the PR is merged', async () => {
     const { repo, spawn } = fixtures();

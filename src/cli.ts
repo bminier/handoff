@@ -4,7 +4,14 @@ import { dirname, join, resolve } from 'node:path';
 import { platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { ArgsError, parseInvocation, type Ref, type Tool, type TelemetryArgs } from './args.ts';
+import {
+  ArgsError,
+  extractGlobalFlags,
+  parseInvocation,
+  type Ref,
+  type Tool,
+  type TelemetryArgs,
+} from './args.ts';
 import { HandoffError } from './errors.ts';
 import { setDebug, setVerbose, verbose } from './logger.ts';
 import { branchName, worktreePath } from './branch.ts';
@@ -36,19 +43,31 @@ import {
 } from './telemetry.ts';
 
 async function main(rawArgv: readonly string[]): Promise<number> {
-  // Detect global flags before routing. Do NOT filter rawArgv before passing
-  // to parseInvocation — that would mangle free-form descriptions that
-  // happen to contain a literal `--verbose` or `--debug` token. Instead,
-  // parseInvocation's scanning loop consumes them when they appear in flag
-  // position (same as --loop), preserving free-form text verbatim.
-  setVerbose(rawArgv.includes('--verbose'));
-  setDebug(rawArgv.includes('--debug'));
+  // Use extractGlobalFlags rather than rawArgv.includes() so that a literal
+  // `--verbose`/`--debug` token inside a free-form description (e.g.
+  // `handoff claude fix the --verbose flag`) doesn't accidentally enable
+  // verbose mode. extractGlobalFlags walks the same scanning-mode boundary
+  // as parseInvocation and only counts flags seen before free-form starts.
+  const { verbose, debug } = extractGlobalFlags(rawArgv);
+  setVerbose(verbose);
+  setDebug(debug);
 
-  if (rawArgv.length === 0 || rawArgv[0] === '--help' || rawArgv[0] === '-h') {
+  // Find the first non-global-flag token so that `--verbose --help` (and
+  // similar) routes correctly instead of falling through to parseInvocation.
+  let firstIdx = 0;
+  while (
+    firstIdx < rawArgv.length &&
+    (rawArgv[firstIdx] === '--verbose' || rawArgv[firstIdx] === '--debug')
+  ) {
+    firstIdx++;
+  }
+  const firstToken = rawArgv[firstIdx];
+
+  if (firstToken === undefined || firstToken === '--help' || firstToken === '-h') {
     console.log(HELP);
     return 0;
   }
-  if (rawArgv[0] === '--version' || rawArgv[0] === '-v') {
+  if (firstToken === '--version' || firstToken === '-v') {
     console.log(VERSION);
     return 0;
   }
