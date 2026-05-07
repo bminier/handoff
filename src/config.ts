@@ -25,6 +25,10 @@ FLAGS
   --loop         (claude only) keep the agent resident after \`gh pr create\`
                  to triage review feedback and CI, push fixes, and iterate
                  until the PR is merged (or a bail condition trips).
+  --verbose      print info-level traces to stderr (branch, worktree path,
+                 terminal launch)
+  --debug        print raw subprocess invocations and exit codes to stderr
+                 (implies --verbose)
 
 TELEMETRY
   Off by default. Nothing is sent until both telemetry is enabled and an
@@ -47,6 +51,12 @@ EXAMPLES
   handoff claude #1 #2 #3                    # fleet: 3 parallel worktrees
   handoff claude --loop #7                   # implement and self-drive review
   handoff claude "tidy up the README"
+
+EXIT CODES
+  0  success
+  1  user error (bad args, unknown tool, unauthenticated gh)
+  2  operational failure (worktree exists, git/gh command failed)
+  3  internal / unexpected error
 
 REQUIREMENTS
   bun, git, gh, and the chosen tool must all be on PATH.
