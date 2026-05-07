@@ -245,6 +245,45 @@ describe('cli integration — fleet mode', () => {
   });
 });
 
+describe('cli integration — error exit codes', () => {
+  it('propagates GhError exitCode 2 from a single-ref runHandoffs failure', async () => {
+    // Regression for the "runHandoffs hard-codes exit 1" Copilot review
+    // comment: a non-auth gh failure raises GhError(exitCode=2). Before the
+    // fix, the per-ref catch collapsed every failure to 1; now it reports
+    // the documented operational-error code.
+    const { spawn } = fixtures();
+    spawn.expectGh(REPO_VIEW_ARGV, { defaultBranchRef: { name: 'dev' } });
+    spawn.expect({
+      command: 'gh',
+      argv: ['issue', 'view', '7', '--json', ISSUE_VIEW_FIELDS],
+      response: { exitCode: 1, stderr: 'GraphQL: Could not resolve to an Issue (issue #7)' },
+    });
+
+    const exitCode = await cliMain(['claude', '#7']);
+    expect(exitCode).toBe(2);
+  });
+
+  it('reports the worst exit code across multi-ref failures', async () => {
+    // Two refs, both fail. First with auth error (exitCode 1), second with
+    // non-auth (exitCode 2). The worst (highest) wins.
+    const { spawn } = fixtures();
+    spawn.expectGh(REPO_VIEW_ARGV, { defaultBranchRef: { name: 'dev' } });
+    spawn.expect({
+      command: 'gh',
+      argv: ['issue', 'view', '7', '--json', ISSUE_VIEW_FIELDS],
+      response: { exitCode: 4, stderr: 'authentication required' },
+    });
+    spawn.expect({
+      command: 'gh',
+      argv: ['issue', 'view', '8', '--json', ISSUE_VIEW_FIELDS],
+      response: { exitCode: 1, stderr: 'unknown server error' },
+    });
+
+    const exitCode = await cliMain(['claude', '#7', '#8']);
+    expect(exitCode).toBe(2);
+  });
+});
+
 describe('cli integration — global flag routing', () => {
   it('--verbose --help prints help and exits 0', async () => {
     const exitCode = await cliMain(['--verbose', '--help']);

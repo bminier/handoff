@@ -236,6 +236,11 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
   const runnerScript = resolveRunnerScript(handoffRoot);
 
   let failures = 0;
+  // Track the most-severe (highest) exit code seen across per-ref failures so
+  // the documented exit-code categories (1=user, 2=operational, 3=internal)
+  // surface even when refs fail independently. cliMain only sees this single
+  // return value because the per-ref try/catch swallows the throw.
+  let worstExitCode = 0;
   for (const ref of refs) {
     try {
       await spawnHandoff({
@@ -252,14 +257,14 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
       console.log(`[handoff] OK ${describeRef(ref)}`);
     } catch (err) {
       failures += 1;
+      const exitCode = exitCodeFor(err);
+      if (exitCode > worstExitCode) worstExitCode = exitCode;
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[handoff] FAILED for ${describeRef(ref)}: ${msg}`);
       if (err instanceof HandoffError && err.hint) {
         console.error(`           hint: ${err.hint}`);
       }
-      emitFireAndForget(
-        eventError({ code: errorCode(err), module: 'cli.spawnHandoff', exitCode: 1 }),
-      );
+      emitFireAndForget(eventError({ code: errorCode(err), module: 'cli.spawnHandoff', exitCode }));
     }
   }
   if (refs.length > 1) {
@@ -268,7 +273,7 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
       `[handoff] ${ok}/${refs.length} succeeded${failures ? `, ${failures} failed` : ''}`,
     );
   }
-  return failures === 0 ? 0 : 1;
+  return failures === 0 ? 0 : worstExitCode;
 }
 
 interface SpawnInput {
@@ -381,6 +386,18 @@ function errorCode(err: unknown): string {
     return err.name;
   }
   return 'Error';
+}
+
+/**
+ * Map an error to the exit-code category cliMain would use if the error
+ * propagated out unchanged. Mirrors the cliMain catch ladder so per-ref
+ * failures inside runHandoffs can report the same code on stderr/telemetry
+ * that a single-ref run would.
+ */
+function exitCodeFor(err: unknown): number {
+  if (err instanceof HandoffError) return err.exitCode;
+  if (err instanceof RunError) return 2;
+  return 3;
 }
 
 /**
