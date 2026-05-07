@@ -79,6 +79,10 @@ function isGlobalFlag(tok: string): boolean {
   return tok === '--verbose' || tok === '--debug';
 }
 
+function stripGlobalFlags(tokens: readonly string[]): string[] {
+  return tokens.filter((t) => !isGlobalFlag(t));
+}
+
 /**
  * Walk argv with the same scanning-mode logic as parseInvocation and return
  * which global flags were seen **before** free-form mode started. This is the
@@ -162,7 +166,11 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   }
 
   if (head === 'cleanup') {
-    const branch = trimmed[1];
+    // No free-form mode under `cleanup` — global flags can appear anywhere
+    // between the subcommand and the branch arg, e.g.
+    // `handoff cleanup --verbose <branch>`.
+    const rest = stripGlobalFlags(trimmed.slice(1));
+    const branch = rest[0];
     if (branch === undefined || branch.trim() === '') {
       throw new ArgsError('Usage: handoff cleanup <branch>');
     }
@@ -170,7 +178,9 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   }
 
   if (head === 'telemetry') {
-    return parseTelemetry(trimmed.slice(1));
+    // Same reasoning as cleanup: telemetry has no free-form mode, so global
+    // flags can be filtered out anywhere in the subcommand args.
+    return parseTelemetry(stripGlobalFlags(trimmed.slice(1)));
   }
 
   if (!isTool(head)) {
@@ -202,8 +212,8 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
       i += 1;
       continue;
     }
-    // Global flags consumed silently in scanning mode; main() reads them from
-    // rawArgv.includes() before this function is called.
+    // Global flags consumed silently in scanning mode; main() reads them via
+    // extractGlobalFlags() before this function is called.
     if (isGlobalFlag(tok!)) {
       i += 1;
       continue;

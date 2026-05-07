@@ -225,6 +225,39 @@ describe('parseInvocation', () => {
       const out = parseInvocation(['--verbose', 'claude', '--debug', '--loop', '#3']);
       expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 3 }], loop: true });
     });
+
+    it('accepts --verbose between cleanup and the branch arg', () => {
+      // Regression: cleanup has no free-form mode, so a global flag wedged
+      // between `cleanup` and the branch must be filtered, not adopted as
+      // the branch name.
+      const out = parseInvocation(['cleanup', '--verbose', 'claude/issue-1']);
+      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
+    });
+
+    it('accepts --debug after cleanup branch arg', () => {
+      const out = parseInvocation(['cleanup', 'claude/issue-1', '--debug']);
+      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
+    });
+
+    it('accepts --verbose between telemetry and its subcommand', () => {
+      const out = parseInvocation(['telemetry', '--verbose', 'status']);
+      expect(out).toEqual({ command: 'telemetry', sub: 'status' });
+    });
+
+    it('accepts --debug interleaved with telemetry enable --endpoint', () => {
+      const out = parseInvocation([
+        'telemetry',
+        '--debug',
+        'enable',
+        '--endpoint',
+        'https://x.test/t',
+      ]);
+      expect(out).toEqual({
+        command: 'telemetry',
+        sub: 'enable',
+        endpoint: 'https://x.test/t',
+      });
+    });
   });
 });
 
