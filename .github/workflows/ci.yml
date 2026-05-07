@@ -39,3 +39,8 @@ jobs:
         # flag (pinning the helpers' single-threaded assumption) is honoured
         # in CI exactly the way it is locally.
         run: bun run test
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Python tests
+        run: uv run pytest tests/install_test.py -v
