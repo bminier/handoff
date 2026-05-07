@@ -5,11 +5,14 @@ import { platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { ArgsError, parseInvocation, type Ref, type Tool, type TelemetryArgs } from './args.ts';
+import { HandoffError } from './errors.ts';
+import { setDebug, setVerbose, verbose } from './logger.ts';
 import { branchName, worktreePath } from './branch.ts';
 import { cleanup, type CleanupResult } from './cleanup.ts';
 import { createWorktree, mainRepoRoot, repoName } from './git.ts';
 import { defaultBranch, fetchIssue, type IssueDetails } from './github.ts';
 import { renderPrompt } from './prompt.ts';
+import { RunError } from './run.ts';
 import { slugify } from './slug.ts';
 import { openTerminal } from './terminal.ts';
 import { HELP, VERSION } from './config.ts';
@@ -32,7 +35,12 @@ import {
   type CleanupOutcome,
 } from './telemetry.ts';
 
-async function main(argv: readonly string[]): Promise<number> {
+async function main(rawArgv: readonly string[]): Promise<number> {
+  // Strip global flags before routing so parseInvocation never sees them.
+  const argv = rawArgv.filter((a) => a !== '--verbose' && a !== '--debug');
+  setVerbose(rawArgv.includes('--verbose'));
+  setDebug(rawArgv.includes('--debug'));
+
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
     console.log(HELP);
     return 0;
@@ -49,7 +57,7 @@ async function main(argv: readonly string[]): Promise<number> {
     if (err instanceof ArgsError) {
       console.error(`error: ${err.message}\n`);
       console.error(HELP);
-      return 64;
+      return 1;
     }
     throw err;
   }
@@ -89,8 +97,10 @@ async function runCleanup(branch: string): Promise<number> {
     }
   }
 
+  verbose(`cleanup: branch = ${branch}, worktree = ${path}`);
   const t0 = Date.now();
   const result = await cleanup(branch, { repoRoot });
+  verbose(`cleanup: result = ${result.status}`);
   console.log(result.message);
 
   const durationMs = Number.isFinite(startedAt) ? Date.now() - startedAt : Date.now() - t0;
@@ -222,6 +232,9 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
       failures += 1;
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[handoff] FAILED for ${describeRef(ref)}: ${msg}`);
+      if (err instanceof HandoffError && err.hint) {
+        console.error(`           hint: ${err.hint}`);
+      }
       emitFireAndForget(
         eventError({ code: errorCode(err), module: 'cli.spawnHandoff', exitCode: 1 }),
       );
@@ -252,18 +265,21 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
   let issue: IssueDetails | undefined;
   let branch: string;
   if (input.ref.kind === 'issue') {
+    verbose(`fetching issue #${input.ref.number}`);
     issue = await fetchIssue(input.ref.number);
     branch = branchName({ tool: input.tool, issueNumber: issue.number });
   } else {
     const slug = slugify(input.ref.text, { maxLen: 20 });
     branch = branchName({ tool: input.tool, slug });
   }
+  verbose(`branch: ${branch}`);
 
   const path = worktreePath({ repoRoot: input.repoRoot, branch });
 
   console.log(`[handoff] ${input.tool} → ${branch}`);
   console.log(`           worktree: ${path}`);
 
+  verbose(`creating worktree at ${path}`);
   await createWorktree({ branch, path, base: input.parentBranch });
 
   const promptCtx = {
@@ -290,6 +306,7 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
     updatedAt: now,
   });
 
+  verbose(`launching terminal for ${branch}`);
   await openTerminal({
     cwd: path,
     scriptPath: input.runnerScript,
@@ -317,9 +334,10 @@ function resolveRunnerScript(handoffRoot: string): string {
   const isWin = platform() === 'win32';
   const script = join(handoffRoot, 'scripts', isWin ? 'handoff-runner.ps1' : 'handoff-runner.sh');
   if (!existsSync(script)) {
-    throw new Error(
-      `handoff: runner script not found at ${script}. ` +
-        `The handoff CLI must be run from a checkout of the handoff repo (or an install that ships scripts/handoff-runner.{sh,ps1}).`,
+    throw new HandoffError(
+      `runner script not found at ${script}`,
+      2,
+      `Run handoff from its repo checkout, or re-run the installer (scripts/install.py).`,
     );
   }
   return script;
@@ -359,7 +377,22 @@ function emitFireAndForget(...args: Parameters<typeof emit>): void {
  * should rely on the entry-point gate below.
  */
 export async function cliMain(argv: readonly string[]): Promise<number> {
-  return main(argv);
+  try {
+    return await main(argv);
+  } catch (err) {
+    if (err instanceof HandoffError) {
+      console.error(`error: ${err.message}`);
+      if (err.hint) console.error(`hint:  ${err.hint}`);
+      return err.exitCode;
+    }
+    if (err instanceof RunError) {
+      console.error(`error: ${err.message}`);
+      return 2;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`error: unexpected error: ${msg}`);
+    return 3;
+  }
 }
 
 // Use process.exitCode (not process.exit) so any in-flight `emit` fetches get
