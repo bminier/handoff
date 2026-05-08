@@ -20,6 +20,8 @@
 | `src/run.ts`                 | `spawn` wrapper with structured errors                                    | I/O   |
 | `src/workspace.ts`           | `.handoff/state.json` read/write + schema-version guard                   | I/O   |
 | `src/telemetry.ts`           | `~/.handoff/config.json`, event constructors, fire-and-forget emit        | mixed |
+| `src/errors.ts`              | `HandoffError` base — exit-code + recovery-hint contract                  | yes   |
+| `src/logger.ts`              | `--verbose`/`--debug` toggles + stderr log helpers                        | mixed |
 | `src/config.ts`              | `VERSION`, `HELP`                                                         | yes   |
 | `scripts/handoff-runner.sh`  | Bash wrapper: run tool, then `bun … cli.ts cleanup <branch>`              | shell |
 | `scripts/handoff-runner.ps1` | PowerShell equivalent for Windows                                         | shell |
@@ -31,6 +33,7 @@ Tests live in `tests/`. Pure modules are covered directly with `bun:test`. I/O m
 - **TypeScript strict + `noUncheckedIndexedAccess`.** `argv[i]` is `string | undefined`; handle it.
 - **No shell interpolation in TS.** Use `run.ts` (which uses `spawn` with an argv array). The only places shell strings exist are the runner scripts under `scripts/`.
 - **Pure modules import only `node:` builtins and other pure modules.** I/O modules can import `run.ts`.
+- **Errors extend `HandoffError`** (`src/errors.ts`) with an `exitCode` (1 = user, 2 = operational, 3 = internal/unexpected) and optionally a recovery `hint`. `cliMain()` uses the exit code as-is and prints the hint on a `hint:` line; `runHandoffs` aggregates the highest per-ref exit code so multi-ref failures still surface the documented category. Don't throw bare `Error` from CLI-reachable code — wrap it.
 - **Conventional Commits**, one logical commit per concern.
 - **Pre-commit hook** runs prettier + eslint via husky + lint-staged. Don't bypass with `--no-verify`.
 
