@@ -35,9 +35,11 @@ export type TelemetryArgs =
 
 export type CliInvocation = ParsedArgs | CleanupArgs | TelemetryArgs;
 
-export class ArgsError extends Error {
+import { HandoffError } from './errors.ts';
+
+export class ArgsError extends HandoffError {
   constructor(message: string) {
-    super(message);
+    super(message, 1);
     this.name = 'ArgsError';
   }
 }
@@ -73,20 +75,118 @@ function parseIssueToken(
   return null;
 }
 
+function isGlobalFlag(tok: string): boolean {
+  return tok === '--verbose' || tok === '--debug';
+}
+
+function stripGlobalFlags(tokens: readonly string[]): string[] {
+  return tokens.filter((t) => !isGlobalFlag(t));
+}
+
+/**
+ * Walk argv with the same scanning-mode logic as parseInvocation and return
+ * which global flags were seen **before** free-form mode started. This is the
+ * authoritative detection path — rawArgv.includes() would fire even for a
+ * literal `--verbose` inside a free-form task description.
+ *
+ * Mirrors the scanning loop in parseInvocation: leading flags, then
+ * `--loop`/`--verbose`/`--debug`/issue-refs in any order, stopping at the
+ * first token that triggers free-form mode.
+ *
+ * For `cleanup` and `telemetry` heads there is no free-form mode, so global
+ * flags can appear anywhere in the remaining argv — scan to the end. (This
+ * mirrors `parseInvocation`'s wholesale-strip behavior on those branches.)
+ */
+export function extractGlobalFlags(argv: readonly string[]): { verbose: boolean; debug: boolean } {
+  let verbose = false;
+  let debug = false;
+  let i = 0;
+
+  // Consume leading global flags before the tool/command name.
+  while (i < argv.length && isGlobalFlag(argv[i]!)) {
+    if (argv[i] === '--verbose') verbose = true;
+    else debug = true;
+    i++;
+  }
+
+  // Skip the tool/command name token.
+  if (i >= argv.length) return { verbose, debug };
+  const head = argv[i];
+  i++;
+
+  // No free-form mode under cleanup / telemetry — scan the whole tail.
+  if (head === 'cleanup' || head === 'telemetry') {
+    while (i < argv.length) {
+      const tok = argv[i]!;
+      if (tok === '--verbose') verbose = true;
+      else if (tok === '--debug') debug = true;
+      i++;
+    }
+    return { verbose, debug };
+  }
+
+  // Tool invocations: scan the refs region — stop at the first free-form token.
+  while (i < argv.length) {
+    const tok = argv[i]!;
+    if (tok === '--verbose') {
+      verbose = true;
+      i++;
+      continue;
+    }
+    if (tok === '--debug') {
+      debug = true;
+      i++;
+      continue;
+    }
+    if (tok === '--loop') {
+      i++;
+      continue;
+    }
+    // Issue ref: #N
+    if (/^#\d+$/.test(tok)) {
+      i++;
+      continue;
+    }
+    // Issue ref: "Issue #N" (two tokens)
+    if (/^issue$/i.test(tok)) {
+      const next = argv[i + 1];
+      if (next !== undefined && /^#?\d+$/.test(next)) {
+        i += 2;
+        continue;
+      }
+    }
+    // Anything else is the start of free-form mode — stop.
+    break;
+  }
+
+  return { verbose, debug };
+}
+
 export function parseInvocation(argv: readonly string[]): CliInvocation {
-  if (argv.length === 0) {
+  // Skip any leading --verbose/--debug before the tool/command name.
+  let start = 0;
+  while (start < argv.length && isGlobalFlag(argv[start]!)) {
+    start += 1;
+  }
+  const trimmed = start === 0 ? argv : argv.slice(start);
+
+  if (trimmed.length === 0) {
     throw new ArgsError(
       'No arguments provided. Usage: handoff <tool> <ref...> | handoff cleanup <branch>',
     );
   }
 
-  const head = argv[0];
+  const head = trimmed[0];
   if (head === undefined) {
     throw new ArgsError('Empty arguments.');
   }
 
   if (head === 'cleanup') {
-    const branch = argv[1];
+    // No free-form mode under `cleanup` — global flags can appear anywhere
+    // between the subcommand and the branch arg, e.g.
+    // `handoff cleanup --verbose <branch>`.
+    const rest = stripGlobalFlags(trimmed.slice(1));
+    const branch = rest[0];
     if (branch === undefined || branch.trim() === '') {
       throw new ArgsError('Usage: handoff cleanup <branch>');
     }
@@ -94,7 +194,9 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   }
 
   if (head === 'telemetry') {
-    return parseTelemetry(argv.slice(1));
+    // Same reasoning as cleanup: telemetry has no free-form mode, so global
+    // flags can be filtered out anywhere in the subcommand args.
+    return parseTelemetry(stripGlobalFlags(trimmed.slice(1)));
   }
 
   if (!isTool(head)) {
@@ -103,7 +205,7 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     );
   }
 
-  const rest = argv.slice(1);
+  const rest = trimmed.slice(1);
   if (rest.length === 0) {
     throw new ArgsError(
       `Missing reference. Usage: handoff ${head} <ref...> ` +
@@ -111,11 +213,11 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     );
   }
 
-  // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop` is the
-  // flag and may appear anywhere among the issue refs (before, between, after).
+  // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop`,
+  // `--verbose`, and `--debug` may appear anywhere among the issue refs.
   // The first token that is neither a flag nor an issue-ref pattern flips us
   // into free-form mode, and from there everything (including a literal
-  // `--loop`) becomes part of the description.
+  // `--loop` or `--verbose`) becomes part of the description verbatim.
   let loop = false;
   const refs: Ref[] = [];
   let i = 0;
@@ -123,6 +225,12 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     const tok = rest[i];
     if (tok === '--loop') {
       loop = true;
+      i += 1;
+      continue;
+    }
+    // Global flags consumed silently in scanning mode; main() reads them via
+    // extractGlobalFlags() before this function is called.
+    if (isGlobalFlag(tok!)) {
       i += 1;
       continue;
     }

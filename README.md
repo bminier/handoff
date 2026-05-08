@@ -111,6 +111,15 @@ handoff cleanup claude/issue-42
 
 This re-checks the PR state and removes the worktree + branch if merged.
 
+## Exit codes
+
+| Code | Meaning                                                                  |
+| ---- | ------------------------------------------------------------------------ |
+| `0`  | success                                                                  |
+| `1`  | user error — bad args, unknown tool, unauthenticated `gh`                |
+| `2`  | operational failure — worktree already exists, `git`/`gh` command failed |
+| `3`  | internal / unexpected error                                              |
+
 ## Architecture
 
 ```

@@ -156,7 +156,7 @@ describePwsh('handoff-runner.ps1', () => {
     TIMEOUT_MS,
   );
 
-  it('cleanup unknown-status (e.g. gh unavailable): runner exits 1, retains worktree', () => {
+  it('cleanup unknown-status (e.g. gh unavailable): runner exits 2 (operational), retains worktree', () => {
     // Mirrors the bash-matrix counterpart — same observable contract,
     // but exercised through the PS runner so a regression in either
     // script (e.g. wrong $LASTEXITCODE handling) trips its own test.
@@ -164,7 +164,7 @@ describePwsh('handoff-runner.ps1', () => {
 
     const result = runPwshRunner(harness, { toolExit: 0, ghFail: true });
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain('Could not check PR status');
     expect(result.stdout).toContain('Re-run `handoff cleanup claude/issue-10`');
     expect(result.stderr).not.toMatch(/at .*src[\\/]cleanup\.ts/);

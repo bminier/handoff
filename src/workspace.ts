@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 
 import type { Tool } from './args.ts';
+import { HandoffError } from './errors.ts';
 
 export const WORKSPACE_DIRNAME = '.handoff';
 export const STATE_FILENAME = 'state.json';
@@ -24,9 +25,9 @@ export interface WorkspaceState {
   updatedAt: string;
 }
 
-export class WorkspaceStateError extends Error {
+export class WorkspaceStateError extends HandoffError {
   constructor(message: string) {
-    super(message);
+    super(message, 2);
     this.name = 'WorkspaceStateError';
   }
 }

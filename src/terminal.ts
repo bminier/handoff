@@ -1,9 +1,10 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { platform } from 'node:os';
+import { HandoffError } from './errors.ts';
 
-export class TerminalError extends Error {
-  constructor(message: string) {
-    super(message);
+export class TerminalError extends HandoffError {
+  constructor(message: string, hint?: string) {
+    super(message, 2, hint);
     this.name = 'TerminalError';
   }
 }
@@ -183,7 +184,10 @@ export async function openTerminalOn(
       lastErr = err instanceof Error ? err : new Error(String(err));
     }
   }
-  throw new TerminalError(`Failed to open a terminal window. Last error: ${lastErr?.message}`);
+  throw new TerminalError(
+    `Failed to open a terminal window. Last error: ${lastErr?.message}`,
+    'Ensure a supported terminal emulator is installed and on PATH.',
+  );
 }
 
 function spawnDetached(spawnImpl: TerminalSpawnFn, spec: LaunchSpec): Promise<void> {

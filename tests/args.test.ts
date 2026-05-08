@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { ArgsError, parseInvocation } from '../src/args.ts';
+import { ArgsError, extractGlobalFlags, parseInvocation } from '../src/args.ts';
 
 describe('parseInvocation', () => {
   it('parses a single #N reference', () => {
@@ -197,5 +197,119 @@ describe('parseInvocation', () => {
         /Unexpected argument/,
       );
     });
+  });
+
+  describe('global flags (--verbose / --debug)', () => {
+    it('accepts --verbose before the tool name', () => {
+      const out = parseInvocation(['--verbose', 'claude', '#1']);
+      expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 1 }], loop: false });
+    });
+
+    it('accepts --debug after the tool name and before refs', () => {
+      const out = parseInvocation(['claude', '--debug', '#2']);
+      expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 2 }], loop: false });
+    });
+
+    it('preserves --verbose in a free-form description verbatim', () => {
+      // The whole point of this fix: --verbose must NOT be stripped when it
+      // appears after the free-form boundary.
+      const out = parseInvocation(['claude', 'fix', 'the', '--verbose', 'flag']);
+      expect(out).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'freeform', text: 'fix the --verbose flag' }],
+        loop: false,
+      });
+    });
+
+    it('accepts multiple global flags mixed with --loop and refs', () => {
+      const out = parseInvocation(['--verbose', 'claude', '--debug', '--loop', '#3']);
+      expect(out).toEqual({ tool: 'claude', refs: [{ kind: 'issue', number: 3 }], loop: true });
+    });
+
+    it('accepts --verbose between cleanup and the branch arg', () => {
+      // Regression: cleanup has no free-form mode, so a global flag wedged
+      // between `cleanup` and the branch must be filtered, not adopted as
+      // the branch name.
+      const out = parseInvocation(['cleanup', '--verbose', 'claude/issue-1']);
+      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
+    });
+
+    it('accepts --debug after cleanup branch arg', () => {
+      const out = parseInvocation(['cleanup', 'claude/issue-1', '--debug']);
+      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
+    });
+
+    it('accepts --verbose between telemetry and its subcommand', () => {
+      const out = parseInvocation(['telemetry', '--verbose', 'status']);
+      expect(out).toEqual({ command: 'telemetry', sub: 'status' });
+    });
+
+    it('accepts --debug interleaved with telemetry enable --endpoint', () => {
+      const out = parseInvocation([
+        'telemetry',
+        '--debug',
+        'enable',
+        '--endpoint',
+        'https://x.test/t',
+      ]);
+      expect(out).toEqual({
+        command: 'telemetry',
+        sub: 'enable',
+        endpoint: 'https://x.test/t',
+      });
+    });
+  });
+});
+
+describe('extractGlobalFlags', () => {
+  it('detects --verbose before the tool name', () => {
+    expect(extractGlobalFlags(['--verbose', 'claude', '#1'])).toEqual({
+      verbose: true,
+      debug: false,
+    });
+  });
+
+  it('detects --debug between tool name and issue ref', () => {
+    expect(extractGlobalFlags(['claude', '--debug', '#1'])).toEqual({
+      verbose: false,
+      debug: true,
+    });
+  });
+
+  it('does NOT detect --verbose that appears inside a free-form description', () => {
+    // "fix the --verbose flag" → freeform starts at "fix"; --verbose is part
+    // of the description and must not enable verbose mode.
+    expect(extractGlobalFlags(['claude', 'fix', 'the', '--verbose', 'flag'])).toEqual({
+      verbose: false,
+      debug: false,
+    });
+  });
+
+  it('detects flags before freeform starts even when freeform contains them too', () => {
+    // --verbose before "fix" is a flag; --verbose after is freeform text.
+    expect(extractGlobalFlags(['claude', '--verbose', 'fix', 'the', '--verbose', 'flag'])).toEqual({
+      verbose: true,
+      debug: false,
+    });
+  });
+
+  it('returns false/false for empty argv', () => {
+    expect(extractGlobalFlags([])).toEqual({ verbose: false, debug: false });
+  });
+
+  it('detects --debug after the cleanup branch arg', () => {
+    // No free-form mode under cleanup, so flags placed after the branch
+    // must still toggle logging — otherwise parseInvocation accepts them
+    // (and the stripped invocation runs) but verbosity is silently off.
+    expect(extractGlobalFlags(['cleanup', 'claude/issue-1', '--debug'])).toEqual({
+      verbose: false,
+      debug: true,
+    });
+  });
+
+  it('detects --verbose interleaved through telemetry args', () => {
+    expect(
+      extractGlobalFlags(['telemetry', 'enable', '--verbose', '--endpoint', 'https://x.test/t']),
+    ).toEqual({ verbose: true, debug: false });
   });
 });

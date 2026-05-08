@@ -161,12 +161,13 @@ describeBash('handoff-runner.sh', () => {
     TIMEOUT_MS,
   );
 
-  it('cleanup unknown-status (e.g. gh unavailable): runner exits 1, retains worktree', () => {
+  it('cleanup unknown-status (e.g. gh unavailable): runner exits 2 (operational), retains worktree', () => {
     // The 62c1611 contract at the runner level: when cleanup returns
     // status:'unknown' (worktree-removal failure, gh failure, branch
     // deletion failure — all map to the same 'unknown' status), the
-    // runner must exit 1 with the cleanup message intact and *no*
-    // stack-trace dump from the bun process.
+    // runner must propagate cli.ts's operational-error exit code (2)
+    // with the cleanup message intact and *no* stack-trace dump from
+    // the bun process.
     //
     // We drive this through a forced gh failure because the
     // worktree-removal-failure path is hard to set up reliably here
@@ -181,7 +182,7 @@ describeBash('handoff-runner.sh', () => {
 
     const result = runBashRunner(harness, { toolExit: 0, ghFail: true });
 
-    expect(result.status).toBe(1);
+    expect(result.status).toBe(2);
     expect(result.stdout).toContain('Could not check PR status');
     expect(result.stdout).toContain('Re-run `handoff cleanup claude/issue-10`');
     // No raw bun stack trace bleeding to the user. cleanup() catches

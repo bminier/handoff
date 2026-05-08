@@ -245,6 +245,77 @@ describe('cli integration — fleet mode', () => {
   });
 });
 
+describe('cli integration — error exit codes', () => {
+  it('propagates GhError exitCode 2 from a single-ref runHandoffs failure', async () => {
+    // Regression for the "runHandoffs hard-codes exit 1" Copilot review
+    // comment: a non-auth gh failure raises GhError(exitCode=2). Before the
+    // fix, the per-ref catch collapsed every failure to 1; now it reports
+    // the documented operational-error code.
+    const { spawn } = fixtures();
+    spawn.expectGh(REPO_VIEW_ARGV, { defaultBranchRef: { name: 'dev' } });
+    spawn.expect({
+      command: 'gh',
+      argv: ['issue', 'view', '7', '--json', ISSUE_VIEW_FIELDS],
+      response: { exitCode: 1, stderr: 'GraphQL: Could not resolve to an Issue (issue #7)' },
+    });
+
+    const exitCode = await cliMain(['claude', '#7']);
+    expect(exitCode).toBe(2);
+  });
+
+  it('reports the worst exit code across multi-ref failures', async () => {
+    // Two refs, both fail. First with auth error (exitCode 1), second with
+    // non-auth (exitCode 2). The worst (highest) wins.
+    const { spawn } = fixtures();
+    spawn.expectGh(REPO_VIEW_ARGV, { defaultBranchRef: { name: 'dev' } });
+    spawn.expect({
+      command: 'gh',
+      argv: ['issue', 'view', '7', '--json', ISSUE_VIEW_FIELDS],
+      response: { exitCode: 4, stderr: 'authentication required' },
+    });
+    spawn.expect({
+      command: 'gh',
+      argv: ['issue', 'view', '8', '--json', ISSUE_VIEW_FIELDS],
+      response: { exitCode: 1, stderr: 'unknown server error' },
+    });
+
+    const exitCode = await cliMain(['claude', '#7', '#8']);
+    expect(exitCode).toBe(2);
+  });
+});
+
+describe('cli integration — global flag routing', () => {
+  it('--verbose --help prints help and exits 0', async () => {
+    const exitCode = await cliMain(['--verbose', '--help']);
+    expect(exitCode).toBe(0);
+  });
+
+  it('--debug -h prints help and exits 0', async () => {
+    const exitCode = await cliMain(['--debug', '-h']);
+    expect(exitCode).toBe(0);
+  });
+
+  it('--verbose --version prints version and exits 0', async () => {
+    const exitCode = await cliMain(['--verbose', '--version']);
+    expect(exitCode).toBe(0);
+  });
+
+  it('flags-only invocation exits 1 (usage error), not 0 via help', async () => {
+    // Regression: `handoff --verbose` used to route to the help path with
+    // exit 0 because firstToken was undefined after stripping flags. Per
+    // the documented EXIT CODES, that's a user error and must be 1.
+    const exitCode = await cliMain(['--verbose']);
+    expect(exitCode).toBe(1);
+  });
+
+  it('empty argv still shows help with exit 0', async () => {
+    // Counterpart to the flags-only case: with no args at all, friendly
+    // help-as-default is the right call.
+    const exitCode = await cliMain([]);
+    expect(exitCode).toBe(0);
+  });
+});
+
 describe('cli integration — cleanup', () => {
   it('handoff cleanup <branch> removes the worktree and branch when the PR is merged', async () => {
     const { repo, spawn } = fixtures();
@@ -268,5 +339,36 @@ describe('cli integration — cleanup', () => {
     expect(existsSync(wt)).toBe(false);
     // Branch is gone — show-ref --verify exits non-zero, runGit throws.
     expect(() => repo.git(['show-ref', '--verify', `refs/heads/${branch}`])).toThrow();
+  });
+
+  it('returns operational-error exit code 2 when cleanup status is unknown', async () => {
+    // Regression: runCleanup used to map status='unknown' (operational
+    // failure — gh/git step failed) to exit 1, conflicting with the
+    // documented exit-code categories. It should now be 2.
+    const { repo, spawn } = fixtures();
+    const branch = 'claude/issue-99';
+    const wt = expectedWorktreePath('issue-99');
+    repo.git(['worktree', 'add', '-b', branch, wt, 'dev']);
+
+    // Force `gh pr list` to fail — cleanup.ts maps that to status='unknown'.
+    spawn.expect({
+      command: 'gh',
+      argv: [
+        'pr',
+        'list',
+        '--head',
+        branch,
+        '--state',
+        'merged',
+        '--json',
+        'number',
+        '--limit',
+        '1',
+      ],
+      response: { exitCode: 1, stderr: 'API rate limit exceeded' },
+    });
+
+    const exitCode = await cliMain(['cleanup', branch]);
+    expect(exitCode).toBe(2);
   });
 });

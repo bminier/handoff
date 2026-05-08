@@ -11,6 +11,8 @@ import {
   removeWorktree,
   repoName,
 } from '../src/git.ts';
+import type { HandoffError } from '../src/errors.ts';
+import { createScriptedSpawn, type ScriptedSpawn } from './helpers/scriptedSpawn.ts';
 import { worktreePath } from '../src/branch.ts';
 import { createTempRepo, type TempRepo } from './helpers/tempRepo.ts';
 
@@ -58,6 +60,33 @@ describe('mainRepoRoot', () => {
 
     process.chdir(linked);
     expect(posix(await mainRepoRoot())).toBe(posix(repo.path));
+  });
+});
+
+describe('mainRepoRoot — outside a git repo', () => {
+  let spawn: ScriptedSpawn;
+  beforeEach(() => {
+    spawn = createScriptedSpawn();
+    spawn.install();
+  });
+  afterEach(() => spawn.uninstall());
+
+  it('throws GitError(exitCode=2) with a recovery hint when git rev-parse fails', async () => {
+    // Simulate being outside a git repo: git exits non-zero.
+    spawn.expect({
+      command: 'git',
+      argv: ['rev-parse', '--git-common-dir'],
+      response: { stderr: 'fatal: not a git repository', exitCode: 128 },
+    });
+    let err: unknown;
+    try {
+      await mainRepoRoot();
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(GitError);
+    expect((err as HandoffError).exitCode).toBe(2);
+    expect((err as HandoffError).hint).toMatch(/git repo/i);
   });
 });
 
@@ -121,6 +150,7 @@ describe('createWorktree', () => {
     }
 
     expect(err).toBeInstanceOf(GitError);
+    expect((err as HandoffError).exitCode).toBe(2);
     expect((err as Error).message).toContain("Branch 'feature/x' already exists");
     expect((err as Error).message).toContain('git branch -D feature/x');
     // No partial state on the filesystem — we bailed before `git worktree add`.

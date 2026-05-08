@@ -4,12 +4,22 @@ import { dirname, join, resolve } from 'node:path';
 import { platform } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
-import { ArgsError, parseInvocation, type Ref, type Tool, type TelemetryArgs } from './args.ts';
+import {
+  ArgsError,
+  extractGlobalFlags,
+  parseInvocation,
+  type Ref,
+  type Tool,
+  type TelemetryArgs,
+} from './args.ts';
+import { HandoffError } from './errors.ts';
+import { setDebug, setVerbose, verbose } from './logger.ts';
 import { branchName, worktreePath } from './branch.ts';
 import { cleanup, type CleanupResult } from './cleanup.ts';
 import { createWorktree, mainRepoRoot, repoName } from './git.ts';
 import { defaultBranch, fetchIssue, type IssueDetails } from './github.ts';
 import { renderPrompt } from './prompt.ts';
+import { RunError } from './run.ts';
 import { slugify } from './slug.ts';
 import { openTerminal } from './terminal.ts';
 import { HELP, VERSION } from './config.ts';
@@ -32,24 +42,50 @@ import {
   type CleanupOutcome,
 } from './telemetry.ts';
 
-async function main(argv: readonly string[]): Promise<number> {
-  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
+async function main(rawArgv: readonly string[]): Promise<number> {
+  // Use extractGlobalFlags rather than rawArgv.includes() so that a literal
+  // `--verbose`/`--debug` token inside a free-form description (e.g.
+  // `handoff claude fix the --verbose flag`) doesn't accidentally enable
+  // verbose mode. extractGlobalFlags walks the same scanning-mode boundary
+  // as parseInvocation and only counts flags seen before free-form starts.
+  // Aliased as *Flag so the booleans don't shadow the imported `verbose()`
+  // logger when this scope grows.
+  const { verbose: verboseFlag, debug: debugFlag } = extractGlobalFlags(rawArgv);
+  setVerbose(verboseFlag);
+  setDebug(debugFlag);
+
+  // Find the first non-global-flag token so that `--verbose --help` (and
+  // similar) routes correctly instead of falling through to parseInvocation.
+  let firstIdx = 0;
+  while (
+    firstIdx < rawArgv.length &&
+    (rawArgv[firstIdx] === '--verbose' || rawArgv[firstIdx] === '--debug')
+  ) {
+    firstIdx++;
+  }
+  const firstToken = rawArgv[firstIdx];
+
+  // Empty argv → show help (the friendly default). But `handoff --verbose`
+  // (only global flags) is a usage error: route those through
+  // parseInvocation so it raises ArgsError → exit 1, matching the
+  // documented exit-code categories.
+  if (rawArgv.length === 0 || firstToken === '--help' || firstToken === '-h') {
     console.log(HELP);
     return 0;
   }
-  if (argv[0] === '--version' || argv[0] === '-v') {
+  if (firstToken === '--version' || firstToken === '-v') {
     console.log(VERSION);
     return 0;
   }
 
   let invocation;
   try {
-    invocation = parseInvocation(argv);
+    invocation = parseInvocation(rawArgv);
   } catch (err) {
     if (err instanceof ArgsError) {
       console.error(`error: ${err.message}\n`);
       console.error(HELP);
-      return 64;
+      return 1;
     }
     throw err;
   }
@@ -89,8 +125,10 @@ async function runCleanup(branch: string): Promise<number> {
     }
   }
 
+  verbose(`cleanup: branch = ${branch}, worktree = ${path}`);
   const t0 = Date.now();
   const result = await cleanup(branch, { repoRoot });
+  verbose(`cleanup: result = ${result.status}`);
   console.log(result.message);
 
   const durationMs = Number.isFinite(startedAt) ? Date.now() - startedAt : Date.now() - t0;
@@ -102,7 +140,10 @@ async function runCleanup(branch: string): Promise<number> {
     }),
   );
 
-  return result.status === 'unknown' ? 1 : 0;
+  // 'unknown' from cleanup.ts means an operational step (gh pr-merged check,
+  // worktree remove, branch delete) failed — that's exit code 2 per the
+  // documented categories, not 1 (which is reserved for user errors).
+  return result.status === 'unknown' ? 2 : 0;
 }
 
 function cleanupOutcome(result: CleanupResult): CleanupOutcome {
@@ -204,6 +245,11 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
   const runnerScript = resolveRunnerScript(handoffRoot);
 
   let failures = 0;
+  // Track the most-severe (highest) exit code seen across per-ref failures so
+  // the documented exit-code categories (1=user, 2=operational, 3=internal)
+  // surface even when refs fail independently. cliMain only sees this single
+  // return value because the per-ref try/catch swallows the throw.
+  let worstExitCode = 0;
   for (const ref of refs) {
     try {
       await spawnHandoff({
@@ -220,11 +266,14 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
       console.log(`[handoff] OK ${describeRef(ref)}`);
     } catch (err) {
       failures += 1;
+      const exitCode = exitCodeFor(err);
+      if (exitCode > worstExitCode) worstExitCode = exitCode;
       const msg = err instanceof Error ? err.message : String(err);
       console.error(`[handoff] FAILED for ${describeRef(ref)}: ${msg}`);
-      emitFireAndForget(
-        eventError({ code: errorCode(err), module: 'cli.spawnHandoff', exitCode: 1 }),
-      );
+      if (err instanceof HandoffError && err.hint) {
+        console.error(`           hint: ${err.hint}`);
+      }
+      emitFireAndForget(eventError({ code: errorCode(err), module: 'cli.spawnHandoff', exitCode }));
     }
   }
   if (refs.length > 1) {
@@ -233,7 +282,7 @@ async function runHandoffs(tool: Tool, refs: Ref[], loop: boolean) {
       `[handoff] ${ok}/${refs.length} succeeded${failures ? `, ${failures} failed` : ''}`,
     );
   }
-  return failures === 0 ? 0 : 1;
+  return failures === 0 ? 0 : worstExitCode;
 }
 
 interface SpawnInput {
@@ -252,18 +301,21 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
   let issue: IssueDetails | undefined;
   let branch: string;
   if (input.ref.kind === 'issue') {
+    verbose(`fetching issue #${input.ref.number}`);
     issue = await fetchIssue(input.ref.number);
     branch = branchName({ tool: input.tool, issueNumber: issue.number });
   } else {
     const slug = slugify(input.ref.text, { maxLen: 20 });
     branch = branchName({ tool: input.tool, slug });
   }
+  verbose(`branch: ${branch}`);
 
   const path = worktreePath({ repoRoot: input.repoRoot, branch });
 
   console.log(`[handoff] ${input.tool} → ${branch}`);
   console.log(`           worktree: ${path}`);
 
+  verbose(`creating worktree at ${path}`);
   await createWorktree({ branch, path, base: input.parentBranch });
 
   const promptCtx = {
@@ -290,6 +342,7 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
     updatedAt: now,
   });
 
+  verbose(`launching terminal for ${branch}`);
   await openTerminal({
     cwd: path,
     scriptPath: input.runnerScript,
@@ -317,9 +370,10 @@ function resolveRunnerScript(handoffRoot: string): string {
   const isWin = platform() === 'win32';
   const script = join(handoffRoot, 'scripts', isWin ? 'handoff-runner.ps1' : 'handoff-runner.sh');
   if (!existsSync(script)) {
-    throw new Error(
-      `handoff: runner script not found at ${script}. ` +
-        `The handoff CLI must be run from a checkout of the handoff repo (or an install that ships scripts/handoff-runner.{sh,ps1}).`,
+    throw new HandoffError(
+      `runner script not found at ${script}`,
+      2,
+      `Run handoff from its repo checkout, or re-run the installer (scripts/install.py).`,
     );
   }
   return script;
@@ -344,6 +398,18 @@ function errorCode(err: unknown): string {
 }
 
 /**
+ * Map an error to the exit-code category cliMain would use if the error
+ * propagated out unchanged. Mirrors the cliMain catch ladder so per-ref
+ * failures inside runHandoffs can report the same code on stderr/telemetry
+ * that a single-ref run would.
+ */
+function exitCodeFor(err: unknown): number {
+  if (err instanceof HandoffError) return err.exitCode;
+  if (err instanceof RunError) return 2;
+  return 3;
+}
+
+/**
  * Detach the network round-trip from the CLI's promise chain so a slow or
  * misconfigured endpoint never blocks the user. Errors are dropped — the
  * debug log (if enabled) is the audit trail.
@@ -359,7 +425,22 @@ function emitFireAndForget(...args: Parameters<typeof emit>): void {
  * should rely on the entry-point gate below.
  */
 export async function cliMain(argv: readonly string[]): Promise<number> {
-  return main(argv);
+  try {
+    return await main(argv);
+  } catch (err) {
+    if (err instanceof HandoffError) {
+      console.error(`error: ${err.message}`);
+      if (err.hint) console.error(`hint:  ${err.hint}`);
+      return err.exitCode;
+    }
+    if (err instanceof RunError) {
+      console.error(`error: ${err.message}`);
+      return 2;
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`error: unexpected error: ${msg}`);
+    return 3;
+  }
 }
 
 // Use process.exitCode (not process.exit) so any in-flight `emit` fetches get
@@ -370,5 +451,5 @@ export async function cliMain(argv: readonly string[]): Promise<number> {
 // Gate on `import.meta.main` so importing this file from a test doesn't
 // auto-execute against the test's argv.
 if (import.meta.main) {
-  process.exitCode = await main(process.argv.slice(2));
+  process.exitCode = await cliMain(process.argv.slice(2));
 }
