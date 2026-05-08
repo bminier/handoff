@@ -134,7 +134,10 @@ async function runCleanup(branch: string): Promise<number> {
     }),
   );
 
-  return result.status === 'unknown' ? 1 : 0;
+  // 'unknown' from cleanup.ts means an operational step (gh pr-merged check,
+  // worktree remove, branch delete) failed — that's exit code 2 per the
+  // documented categories, not 1 (which is reserved for user errors).
+  return result.status === 'unknown' ? 2 : 0;
 }
 
 function cleanupOutcome(result: CleanupResult): CleanupOutcome {

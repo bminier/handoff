@@ -325,4 +325,35 @@ describe('cli integration — cleanup', () => {
     // Branch is gone — show-ref --verify exits non-zero, runGit throws.
     expect(() => repo.git(['show-ref', '--verify', `refs/heads/${branch}`])).toThrow();
   });
+
+  it('returns operational-error exit code 2 when cleanup status is unknown', async () => {
+    // Regression: runCleanup used to map status='unknown' (operational
+    // failure — gh/git step failed) to exit 1, conflicting with the
+    // documented exit-code categories. It should now be 2.
+    const { repo, spawn } = fixtures();
+    const branch = 'claude/issue-99';
+    const wt = expectedWorktreePath('issue-99');
+    repo.git(['worktree', 'add', '-b', branch, wt, 'dev']);
+
+    // Force `gh pr list` to fail — cleanup.ts maps that to status='unknown'.
+    spawn.expect({
+      command: 'gh',
+      argv: [
+        'pr',
+        'list',
+        '--head',
+        branch,
+        '--state',
+        'merged',
+        '--json',
+        'number',
+        '--limit',
+        '1',
+      ],
+      response: { exitCode: 1, stderr: 'API rate limit exceeded' },
+    });
+
+    const exitCode = await cliMain(['cleanup', branch]);
+    expect(exitCode).toBe(2);
+  });
 });
