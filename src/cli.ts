@@ -48,9 +48,11 @@ async function main(rawArgv: readonly string[]): Promise<number> {
   // `handoff claude fix the --verbose flag`) doesn't accidentally enable
   // verbose mode. extractGlobalFlags walks the same scanning-mode boundary
   // as parseInvocation and only counts flags seen before free-form starts.
-  const { verbose, debug } = extractGlobalFlags(rawArgv);
-  setVerbose(verbose);
-  setDebug(debug);
+  // Aliased as *Flag so the booleans don't shadow the imported `verbose()`
+  // logger when this scope grows.
+  const { verbose: verboseFlag, debug: debugFlag } = extractGlobalFlags(rawArgv);
+  setVerbose(verboseFlag);
+  setDebug(debugFlag);
 
   // Find the first non-global-flag token so that `--verbose --help` (and
   // similar) routes correctly instead of falling through to parseInvocation.
@@ -63,7 +65,11 @@ async function main(rawArgv: readonly string[]): Promise<number> {
   }
   const firstToken = rawArgv[firstIdx];
 
-  if (firstToken === undefined || firstToken === '--help' || firstToken === '-h') {
+  // Empty argv → show help (the friendly default). But `handoff --verbose`
+  // (only global flags) is a usage error: route those through
+  // parseInvocation so it raises ArgsError → exit 1, matching the
+  // documented exit-code categories.
+  if (rawArgv.length === 0 || firstToken === '--help' || firstToken === '-h') {
     console.log(HELP);
     return 0;
   }

@@ -299,6 +299,21 @@ describe('cli integration — global flag routing', () => {
     const exitCode = await cliMain(['--verbose', '--version']);
     expect(exitCode).toBe(0);
   });
+
+  it('flags-only invocation exits 1 (usage error), not 0 via help', async () => {
+    // Regression: `handoff --verbose` used to route to the help path with
+    // exit 0 because firstToken was undefined after stripping flags. Per
+    // the documented EXIT CODES, that's a user error and must be 1.
+    const exitCode = await cliMain(['--verbose']);
+    expect(exitCode).toBe(1);
+  });
+
+  it('empty argv still shows help with exit 0', async () => {
+    // Counterpart to the flags-only case: with no args at all, friendly
+    // help-as-default is the right call.
+    const exitCode = await cliMain([]);
+    expect(exitCode).toBe(0);
+  });
 });
 
 describe('cli integration — cleanup', () => {
