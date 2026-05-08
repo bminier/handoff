@@ -296,4 +296,20 @@ describe('extractGlobalFlags', () => {
   it('returns false/false for empty argv', () => {
     expect(extractGlobalFlags([])).toEqual({ verbose: false, debug: false });
   });
+
+  it('detects --debug after the cleanup branch arg', () => {
+    // No free-form mode under cleanup, so flags placed after the branch
+    // must still toggle logging — otherwise parseInvocation accepts them
+    // (and the stripped invocation runs) but verbosity is silently off.
+    expect(extractGlobalFlags(['cleanup', 'claude/issue-1', '--debug'])).toEqual({
+      verbose: false,
+      debug: true,
+    });
+  });
+
+  it('detects --verbose interleaved through telemetry args', () => {
+    expect(
+      extractGlobalFlags(['telemetry', 'enable', '--verbose', '--endpoint', 'https://x.test/t']),
+    ).toEqual({ verbose: true, debug: false });
+  });
 });

@@ -92,6 +92,10 @@ function stripGlobalFlags(tokens: readonly string[]): string[] {
  * Mirrors the scanning loop in parseInvocation: leading flags, then
  * `--loop`/`--verbose`/`--debug`/issue-refs in any order, stopping at the
  * first token that triggers free-form mode.
+ *
+ * For `cleanup` and `telemetry` heads there is no free-form mode, so global
+ * flags can appear anywhere in the remaining argv — scan to the end. (This
+ * mirrors `parseInvocation`'s wholesale-strip behavior on those branches.)
  */
 export function extractGlobalFlags(argv: readonly string[]): { verbose: boolean; debug: boolean } {
   let verbose = false;
@@ -107,9 +111,21 @@ export function extractGlobalFlags(argv: readonly string[]): { verbose: boolean;
 
   // Skip the tool/command name token.
   if (i >= argv.length) return { verbose, debug };
+  const head = argv[i];
   i++;
 
-  // Scan the refs region — stop at the first free-form token.
+  // No free-form mode under cleanup / telemetry — scan the whole tail.
+  if (head === 'cleanup' || head === 'telemetry') {
+    while (i < argv.length) {
+      const tok = argv[i]!;
+      if (tok === '--verbose') verbose = true;
+      else if (tok === '--debug') debug = true;
+      i++;
+    }
+    return { verbose, debug };
+  }
+
+  // Tool invocations: scan the refs region — stop at the first free-form token.
   while (i < argv.length) {
     const tok = argv[i]!;
     if (tok === '--verbose') {
