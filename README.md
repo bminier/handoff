@@ -111,6 +111,17 @@ handoff cleanup claude/issue-42
 
 This re-checks the PR state and removes the worktree + branch if merged.
 
+### Verbose / debug logging
+
+Two global flags for when you want to see what `handoff` is doing under the hood:
+
+```bash
+handoff --verbose claude #7    # info traces (branch, worktree path, terminal launch)
+handoff --debug claude #7      # subprocess invocations + exit codes (implies --verbose)
+```
+
+Both write to stderr so they don't pollute scriptable stdout. They can sit before the tool, after it, or before/after subcommands (`handoff cleanup --verbose <branch>`); they're stripped from free-form descriptions verbatim, so `handoff claude "fix the --verbose flag"` still works.
+
 ## Exit codes
 
 | Code | Meaning                                                                  |
