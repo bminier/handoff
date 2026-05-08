@@ -442,5 +442,5 @@ export async function cliMain(argv: readonly string[]): Promise<number> {
 // Gate on `import.meta.main` so importing this file from a test doesn't
 // auto-execute against the test's argv.
 if (import.meta.main) {
-  process.exitCode = await main(process.argv.slice(2));
+  process.exitCode = await cliMain(process.argv.slice(2));
 }
