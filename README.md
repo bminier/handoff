@@ -208,13 +208,25 @@ bun run lint
 bun run format
 ```
 
-Use `bun run test`, not bare `bun test`. The script pins
-`--max-concurrency=1` so a future `test.concurrent()` marker (or a `bun
-test --concurrent` invocation) can't race the I/O-test fixtures in
-`tests/helpers/`, which depend on process-global state. See
-`tests/README.md` for the full rationale.
-
 Pre-commit runs prettier + eslint via husky + lint-staged.
+
+## Testing
+
+Run the full suite with `bun run test`, **not** bare `bun test` — the script pins `--max-concurrency=1` so the I/O fixtures (which depend on process-global state) can't race a future `test.concurrent()` marker.
+
+```bash
+bun run test                              # everything
+bun run test tests/args.test.ts           # one file
+bun test --watch                          # iterate (skips the concurrency pin; safe for pure-module work)
+```
+
+Three test layers, each with its own conventions:
+
+- **Pure modules** (`args`, `slug`, `branch`, `prompt`, parts of `workspace` and `terminal`) — direct `bun:test`, no fixtures.
+- **I/O modules** (`run`, `github`, `git`, `cleanup`, `terminal` spawn) — one of three fixtures under `tests/helpers/`: `scriptedSpawn` for spawn-shaped contracts, `tempRepo` for real-`git` behaviour, dependency injection when a module has multiple I/O collaborators.
+- **Integration** — `tests/cli.integration.test.ts` for the end-to-end CLI happy path (hybrid fixture: faked `gh`, real `git`, faked terminal); `tests/runner-bash.integration.test.ts` and `tests/runner-ps1.integration.test.ts` for the wrapper scripts; `scripts/install.py` is covered by pytest in `tests/install_test.py` (run with `uv run pytest tests/install_test.py` — same command CI uses).
+
+Adding a test for a new I/O module: pick the fixture from `tests/README.md`'s decision matrix, follow the per-fixture pattern there. Don't reach for `mock.module(...)` on `src/*.ts` — Bun's `mock.module` is process-global and pollutes other test files.
 
 ## License
 

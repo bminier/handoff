@@ -26,7 +26,21 @@
 | `scripts/handoff-runner.sh`  | Bash wrapper: run tool, then `bun … cli.ts cleanup <branch>`              | shell |
 | `scripts/handoff-runner.ps1` | PowerShell equivalent for Windows                                         | shell |
 
-Tests live in `tests/`. Pure modules are covered directly with `bun:test`. I/O modules use one of three fixtures — `scriptedSpawn`, `tempRepo`, or per-module dependency injection. See [tests/README.md](./tests/README.md) for which to pick when, and why `mock.module(...)` on `src/*.ts` is off-limits (Bun's mock.module is process-global and pollutes cross-file).
+Tests live in `tests/`. Pure modules are covered directly with `bun:test`. See the **Testing fixtures** section below for the I/O test contract.
+
+## Testing fixtures
+
+I/O modules pick one of three fixtures — the rules below are the short version; [tests/README.md](./tests/README.md) is the authoritative source (decision matrix, rationale, the `--max-concurrency=1` reasoning, and why `mock.module(...)` on `src/*.ts` is banned).
+
+| You're testing                                  | Use                       |
+| ----------------------------------------------- | ------------------------- |
+| `run.ts`, `github.ts`                           | `scriptedSpawn`           |
+| `git.ts` (worktree create/remove, branch ops)   | `tempRepo`                |
+| Multiple I/O collaborators (`cleanup.ts`, etc.) | dependency injection      |
+| `terminal.ts` spawn path                        | dependency injection      |
+| CLI fan-out (`fetchIssue` + `git` + `terminal`) | hybrid (see tests/README) |
+
+When you add a new I/O module: pick a fixture from the matrix, follow the per-fixture pattern in tests/README.md, and add a row here only if your module doesn't fit any of the existing patterns.
 
 ## Conventions
 
