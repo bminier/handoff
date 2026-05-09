@@ -194,6 +194,17 @@ describe('event constructors — no-PII shape', () => {
     expect(ev.payload.tool).toBe('unknown');
   });
 
+  it('cleanup outcome accepts "forced" — distinct from "merged" for --force runs', () => {
+    // Issue #54: --force-removed cleanups must be distinguishable from
+    // merged-PR cleanups so analytics can track how often the safety
+    // check is bypassed. A regression that drops 'forced' from the
+    // CleanupOutcome union (or remaps it to 'merged') would silently
+    // re-conflate the two — pin the type-level acceptance here.
+    const ev = eventCleanup({ tool: 'claude', outcome: 'forced', durationMs: 100 });
+    expect(ev.payload.outcome).toBe('forced');
+    expect(Object.keys(ev.payload).sort()).toEqual([...ALLOWED_KEYS['handoff.cleanup']].sort());
+  });
+
   it('newSessionId returns a UUID, not a user-derived value', () => {
     const id = newSessionId();
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);

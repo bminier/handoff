@@ -103,19 +103,23 @@ describe('cleanup', () => {
     expect(state.calls.deleteBranch.length).toBe(0);
   });
 
-  it('retains the worktree when the PR is not merged', async () => {
+  it('retains the worktree when no merged PR has the branch as head', async () => {
     state.mergedReturn = false;
 
     const result = await cleanup('claude/issue-1', { repoRoot: '/work/handoff', deps });
 
     expect(result.status).toBe('retained');
-    expect(result.message).toContain('not merged');
+    expect(result.message).toContain('No merged PR has claude/issue-1 as its head');
     expect(result.message).toContain('Worktree retained');
+    // Issue #54: the retention path is the orphan-worktree gateway.
+    // Surface --force so the user knows the escape hatch exists without
+    // having to grep --help.
+    expect(result.message).toContain('handoff cleanup --force claude/issue-1');
     expect(state.calls.removeWorktree.length).toBe(0);
     expect(state.calls.deleteBranch.length).toBe(0);
   });
 
-  it('returns "unknown" when gh fails', async () => {
+  it('returns "unknown" when gh fails — and points at --force as a fallback', async () => {
     state.mergedReturn = new GhError('gh pr list failed: not authenticated');
 
     const result = await cleanup('claude/issue-3', { repoRoot: '/work/handoff', deps });
@@ -124,8 +128,59 @@ describe('cleanup', () => {
     expect(result.message).toContain('Could not check PR status');
     expect(result.message).toContain('not authenticated');
     expect(result.message).toContain('Re-run');
+    // Issue #54: when gh is broken, the user shouldn't be stranded
+    // until gh works again — --force is the documented opt-in.
+    expect(result.message).toContain('handoff cleanup --force claude/issue-3');
     expect(state.calls.removeWorktree.length).toBe(0);
     expect(state.calls.deleteBranch.length).toBe(0);
+  });
+
+  it('force=true skips the merge check and tears down anyway', async () => {
+    // The orphan-worktree case from issue #54: work shipped under a
+    // different branch, so prMergedFor would return false (or fail). With
+    // --force we never call prMergedFor at all; we go straight to
+    // worktree + branch removal.
+    state.worktreeOnDisk = true;
+    state.branchExistsReturn = true;
+
+    const result = await cleanup('claude/issue-5', {
+      repoRoot: '/work/handoff',
+      deps,
+      force: true,
+    });
+
+    expect(result.status).toBe('removed');
+    expect(result.message).toContain('Removed worktree');
+    expect(result.message).toContain('deleted branch claude/issue-5');
+    // The "(forced — merge check skipped)" reason distinguishes this from
+    // a real merged-PR cleanup in logs and telemetry. Production analytics
+    // can't tell forced from merged otherwise.
+    expect(result.message).toContain('forced — merge check skipped');
+    // Critical: prMergedFor must NOT have been called. If it were, a gh
+    // outage or an orphan branch would re-fail the cleanup the user is
+    // explicitly opting into.
+    expect(state.calls.prMergedFor).toEqual([]);
+    expect(state.calls.removeWorktree.length).toBe(1);
+    expect(state.calls.deleteBranch).toEqual(['claude/issue-5']);
+  });
+
+  it('force=true still no-ops cleanly when worktree + branch already gone', async () => {
+    // Exercises the "user runs --force on something already cleaned up"
+    // case — should still succeed, not throw or skip the report.
+    state.worktreeOnDisk = false;
+    state.branchExistsReturn = false;
+
+    const result = await cleanup('codex/issue-99', {
+      repoRoot: '/work/handoff',
+      deps,
+      force: true,
+    });
+
+    expect(result.status).toBe('removed');
+    expect(result.message).toContain('was not present');
+    expect(result.message).toContain('branch codex/issue-99 was already gone');
+    expect(result.message).toContain('forced — merge check skipped');
+    expect(state.calls.prMergedFor).toEqual([]);
   });
 
   it('returns "unknown" when worktree removal fails', async () => {

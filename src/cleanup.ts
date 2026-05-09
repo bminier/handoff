@@ -43,6 +43,16 @@ function buildDefaultDeps(repoRoot: string): CleanupDeps {
 export interface CleanupOpts {
   repoRoot: string;
   /**
+   * Skip the gh-merged-PR safety check and tear down the worktree +
+   * branch unconditionally. For orphan worktrees whose work shipped
+   * under a different branch (rebased, renamed, force-pushed sibling) —
+   * the default `gh pr list --head <branch>` lookup returns empty for
+   * those, so cleanup correctly retains them; `--force` is the user's
+   * opt-in escape hatch. Defaults to `false` so the safety contract
+   * stands for non-orphan cases.
+   */
+  force?: boolean;
+  /**
    * @internal Test-only injection seam. Production callers should rely on the
    * default deps wired to `git.ts` / `github.ts` / `node:fs`. All-or-nothing
    * by design: a partial set used to silently fall back to the real impls,
@@ -54,27 +64,33 @@ export interface CleanupOpts {
 export async function cleanup(branch: string, opts: CleanupOpts): Promise<CleanupResult> {
   const deps: CleanupDeps = opts.deps ?? buildDefaultDeps(opts.repoRoot);
   const path = worktreePath({ repoRoot: opts.repoRoot, branch });
+  const force = opts.force ?? false;
 
-  let merged: boolean;
-  try {
-    merged = await deps.prMergedFor(branch);
-  } catch (err) {
-    const reason = err instanceof GhError ? err.message : String(err);
-    return {
-      status: 'unknown',
-      message:
-        `Could not check PR status for ${branch} (${reason}). Worktree retained at ${path}. ` +
-        `Re-run \`handoff cleanup ${branch}\` once \`gh\` works.`,
-    };
-  }
+  if (!force) {
+    let merged: boolean;
+    try {
+      merged = await deps.prMergedFor(branch);
+    } catch (err) {
+      const reason = err instanceof GhError ? err.message : String(err);
+      return {
+        status: 'unknown',
+        message:
+          `Could not check PR status for ${branch} (${reason}). Worktree retained at ${path}. ` +
+          `Re-run \`handoff cleanup ${branch}\` once \`gh\` works, ` +
+          `or use \`handoff cleanup --force ${branch}\` to remove it without the merge check.`,
+      };
+    }
 
-  if (!merged) {
-    return {
-      status: 'retained',
-      message:
-        `PR for ${branch} is not merged. Worktree retained at ${path}. ` +
-        `Run \`handoff cleanup ${branch}\` after merging to remove it.`,
-    };
+    if (!merged) {
+      return {
+        status: 'retained',
+        message:
+          `No merged PR has ${branch} as its head. Worktree retained at ${path}. ` +
+          `Run \`handoff cleanup ${branch}\` after merging, or — if the work shipped ` +
+          `under a different branch and this worktree is orphaned — ` +
+          `\`handoff cleanup --force ${branch}\` removes it without the merge check.`,
+      };
+    }
   }
 
   const worktreeExisted = deps.existsSync(path);
@@ -116,8 +132,9 @@ export async function cleanup(branch: string, opts: CleanupOpts): Promise<Cleanu
   if (removedBranch) parts.push(`deleted branch ${branch}`);
   else parts.push(`branch ${branch} was already gone`);
 
+  const reason = force ? 'forced — merge check skipped' : 'PR merged';
   return {
     status: 'removed',
-    message: `${parts.join(' and ')} (PR merged). [${branchTail(branch)}]`,
+    message: `${parts.join(' and ')} (${reason}). [${branchTail(branch)}]`,
   };
 }

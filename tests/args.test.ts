@@ -98,7 +98,26 @@ describe('parseInvocation', () => {
 
   it('parses cleanup subcommand', () => {
     const out = parseInvocation(['cleanup', 'claude/issue-1']);
-    expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
+    expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: false });
+  });
+
+  it('parses cleanup --force <branch>', () => {
+    const out = parseInvocation(['cleanup', '--force', 'claude/issue-1']);
+    expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: true });
+  });
+
+  it('parses cleanup <branch> --force (trailing position)', () => {
+    // --force is position-independent under cleanup: same scanning model
+    // as --verbose/--debug since cleanup has no free-form mode.
+    const out = parseInvocation(['cleanup', 'claude/issue-1', '--force']);
+    expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: true });
+  });
+
+  it('rejects extra positionals on cleanup', () => {
+    // Guards against `handoff cleanup branch-a branch-b` silently dropping
+    // the second branch — multi-branch cleanup is out of scope; surface
+    // the typo loudly.
+    expect(() => parseInvocation(['cleanup', 'a', 'b'])).toThrow(/single <branch>/);
   });
 
   it('rejects unknown tool', () => {
@@ -231,12 +250,17 @@ describe('parseInvocation', () => {
       // between `cleanup` and the branch must be filtered, not adopted as
       // the branch name.
       const out = parseInvocation(['cleanup', '--verbose', 'claude/issue-1']);
-      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
+      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: false });
     });
 
     it('accepts --debug after cleanup branch arg', () => {
       const out = parseInvocation(['cleanup', 'claude/issue-1', '--debug']);
-      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1' });
+      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: false });
+    });
+
+    it('accepts --verbose --force <branch> together', () => {
+      const out = parseInvocation(['cleanup', '--verbose', '--force', 'claude/issue-1']);
+      expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: true });
     });
 
     it('accepts --verbose between telemetry and its subcommand', () => {

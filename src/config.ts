@@ -6,7 +6,9 @@ export const HELP = `handoff v${VERSION}
 USAGE
   handoff <tool> <ref...>          spawn a worktree per ref and launch <tool>
   handoff claude [--loop] <ref...> claude only: stay resident through review (see FLAGS)
-  handoff cleanup <branch>         remove a worktree if its PR has merged
+  handoff cleanup [--force] <branch>
+                                   remove a worktree if its PR has merged
+                                   (--force skips the merge check; see FLAGS)
   handoff telemetry <subcommand>   manage opt-in usage telemetry (see TELEMETRY)
   handoff --help                   show this message
   handoff --version                show version
@@ -25,6 +27,10 @@ FLAGS
   --loop         (claude only) keep the agent resident after \`gh pr create\`
                  to triage review feedback and CI, push fixes, and iterate
                  until the PR is merged (or a bail condition trips).
+  --force        (cleanup only) skip the merged-PR safety check and tear
+                 down the worktree + branch unconditionally. Use when the
+                 work shipped under a different branch (rebased, renamed,
+                 force-pushed sibling) and the worktree is orphaned.
   --verbose      print info-level traces to stderr (branch, worktree path,
                  terminal launch)
   --debug        print raw subprocess invocations and exit codes to stderr

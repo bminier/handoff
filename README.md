@@ -111,6 +111,14 @@ handoff cleanup claude/issue-42
 
 This re-checks the PR state and removes the worktree + branch if merged.
 
+If the work shipped under a different branch (rebased, renamed, force-pushed to a sibling), `gh pr list --head <branch>` returns empty and the worktree is correctly retained — the merge-check has no proof. Use `--force` to remove the orphan worktree without the safety check:
+
+```bash
+handoff cleanup --force claude/issue-42
+```
+
+`--force` is also the escape hatch when `gh` itself is broken (rate-limited, unauthenticated). Reach for it when you've verified the work is shipped, not as a default — the merge-check exists to keep `handoff cleanup` from eating in-progress work.
+
 ### Verbose / debug logging
 
 Two global flags for when you want to see what `handoff` is doing under the hood:
@@ -192,7 +200,7 @@ What we collect (and only this — by construction):
 | `handoff.cleanup` | `{ tool, outcome, durationMs }`             |
 | `handoff.error`   | `{ code, module, exitCode }`                |
 
-`refType` is `issue` or `freeform`; `outcome` is `merged` / `retained` / `failed`; `sessionId` is a per-handoff random UUID. There is **no PII**: no issue titles, branch names, repo paths, or usernames are ever transmitted. Event delivery is async fire-and-forget: the CLI never awaits a send at the call site, so a slow or down endpoint doesn't gate user-visible work. The process does wait briefly on exit for any in-flight requests to drain, bounded by a 1s `AbortController` timeout per request. Failures (transport errors, non-2xx, timeout) are dropped silently.
+`refType` is `issue` or `freeform`; `outcome` is `merged` / `forced` / `retained` / `failed` (`forced` is when the user passed `handoff cleanup --force` — distinguished so analytics can track how often the merge-check safety is bypassed); `sessionId` is a per-handoff random UUID. There is **no PII**: no issue titles, branch names, repo paths, or usernames are ever transmitted. Event delivery is async fire-and-forget: the CLI never awaits a send at the call site, so a slow or down endpoint doesn't gate user-visible work. The process does wait briefly on exit for any in-flight requests to drain, bounded by a 1s `AbortController` timeout per request. Failures (transport errors, non-2xx, timeout) are dropped silently.
 
 Trust through transparency: set `HANDOFF_TELEMETRY_DEBUG=1` in your environment to capture every event you would have sent to `~/.handoff/telemetry-debug.log`. The log is written **whether or not telemetry is enabled**, so you can audit what the tool would send before turning it on. `handoff telemetry log` prints the file.
 

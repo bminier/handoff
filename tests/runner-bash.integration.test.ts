@@ -142,8 +142,12 @@ describeBash('handoff-runner.sh', () => {
       });
 
       expectExit(result, 0, 'bash PR not merged');
-      expect(result.stdout).toContain('not merged');
+      expect(result.stdout).toContain('No merged PR has claude/issue-8 as its head');
       expect(result.stdout).toContain('Worktree retained');
+      // Issue #54 surfaces --force as the orphan-worktree escape hatch
+      // in the retention message; pin it so a future copy edit doesn't
+      // silently drop the discoverability we added.
+      expect(result.stdout).toContain('handoff cleanup --force claude/issue-8');
       expect(existsSync(harness.worktreePath)).toBe(true);
       // Branch must survive — the agent might come back to push more
       // commits before the PR finally merges.

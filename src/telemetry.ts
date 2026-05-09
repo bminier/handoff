@@ -98,7 +98,16 @@ export function serializeConfig(config: TelemetryConfig): string {
 // ---------- pure: events ----------
 
 export type RefType = 'issue' | 'freeform';
-export type CleanupOutcome = 'merged' | 'retained' | 'failed';
+/**
+ * Outcome of a `handoff cleanup` invocation.
+ * - `merged`:   PR was merged → worktree + branch removed.
+ * - `forced`:   user passed `--force` → merge check skipped, removed anyway
+ *               (orphan-worktree escape hatch). Distinct from `merged` so
+ *               analytics can track how often the safety contract is bypassed.
+ * - `retained`: no merged PR found → worktree kept (safety check refused).
+ * - `failed`:   gh failed, or worktree/branch removal hit a real error.
+ */
+export type CleanupOutcome = 'merged' | 'forced' | 'retained' | 'failed';
 
 export interface StartEvent {
   name: 'handoff.start';
