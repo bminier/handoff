@@ -2,6 +2,8 @@
 
 One PR into `dev` lands all of v0.1.0. Commits below are the intended sequence inside that PR; the PR is opened only after the final commit.
 
+> **Historical document.** This captures the plan as it stood at the v0.1.0 cut. Subsequent releases superseded parts of it: the `src/adapters.ts` module referenced below was removed, and the per-tool invocation shapes diverged from the "all three accept a positional prompt" assumption (copilot needs `-i <PROMPT>`, see #57). For the current truth, see [CLAUDE.md's per-tool invocation table](../CLAUDE.md#per-tool-invocation-table) and `scripts/handoff-runner.{sh,ps1}` — they're the source of record post-v0.1.0.
+
 ## Phase 0 — Repo bootstrap
 
 **Commit:** `chore: bootstrap repo (gitignore, license, editorconfig)`
