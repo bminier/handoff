@@ -66,9 +66,17 @@ export interface RunnerHarness {
   /** Absolute path to the handoff repo root (passed as the runner's first arg). */
   handoffRepoRoot: string;
   /**
+   * Path the fake tool shim writes its received argv to (one JSON array
+   * per invocation). Tests assert on this to pin the per-tool argv shape
+   * the runner produces — e.g. claude/codex get `[PROMPT]`, copilot gets
+   * `['-i', PROMPT]`.
+   */
+  argvLogPath: string;
+  /**
    * Env to pass to the spawned runner. Already includes:
    *  - `PATH` with `fakeBinDir` prepended (so the shims win)
    *  - `HOME` / `USERPROFILE` redirected to a temp dir
+   *  - `FAKE_TOOL_ARGV_LOG` pointing at `argvLogPath`
    *  - any extra entries the test passes via `extraEnv`
    * Tests typically tweak `FAKE_TOOL_EXIT` / `FAKE_GH_PR_LIST_RESPONSE`
    * here per case.
@@ -106,6 +114,10 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
   // tracking so a test that throws mid-setup still releases them.
   const homeDir = mkdtempSync(join(tmpdir(), 'handoff-runner-home-'));
   const fakeBinDir = mkdtempSync(join(tmpdir(), 'handoff-runner-bin-'));
+  // Pre-allocate the argv-log path so it's stable for the test even
+  // before the fake shim runs. The shim creates the file on first
+  // invocation; tests that don't care about argv simply ignore it.
+  const argvLogPath = join(fakeBinDir, 'tool-argv.log');
 
   let cleanedUp = false;
   const harness: RunnerHarness = {
@@ -119,6 +131,7 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
       opts.target === 'pwsh' ? 'handoff-runner.ps1' : 'handoff-runner.sh',
     ),
     handoffRepoRoot: HANDOFF_REPO_ROOT,
+    argvLogPath,
     env: {},
     cleanup() {
       if (cleanedUp) return;
@@ -176,6 +189,7 @@ export function createRunnerHarness(opts: RunnerHarnessOptions): RunnerHarness {
     // unset) so the shims don't hit a "variable not set" branch.
     env.FAKE_TOOL_EXIT = '0';
     env.FAKE_GH_PR_LIST_RESPONSE = JSON.stringify([{ number: 1 }]);
+    env.FAKE_TOOL_ARGV_LOG = argvLogPath;
     harness.env = env;
 
     return harness;
@@ -236,9 +250,17 @@ function writeFakeShims(opts: { fakeBinDir: string }): void {
   writeFileSync(
     fakeToolImpl,
     [
-      `// Fake tool (claude/codex/copilot): exits with FAKE_TOOL_EXIT.`,
-      `// Argv is ignored — the runner passes PROMPT.md content as one`,
-      `// arg, but tests don't care about the prompt body.`,
+      `// Fake tool (claude/codex/copilot): records its argv to`,
+      `// FAKE_TOOL_ARGV_LOG (one JSON array per invocation, separated by`,
+      `// newlines) and exits with FAKE_TOOL_EXIT. Tests assert on the`,
+      `// log to pin the per-tool argv shape the runner produces — e.g.`,
+      `// claude/codex get [PROMPT], copilot gets ["-i", PROMPT].`,
+      `import { appendFileSync } from 'node:fs';`,
+      `const argv = process.argv.slice(2);`,
+      `const log = process.env.FAKE_TOOL_ARGV_LOG;`,
+      `if (log) {`,
+      `  appendFileSync(log, JSON.stringify(argv) + '\\n', 'utf8');`,
+      `}`,
       `const code = Number(process.env.FAKE_TOOL_EXIT ?? '0');`,
       `process.exit(Number.isFinite(code) ? code : 0);`,
       ``,
@@ -267,25 +289,32 @@ function writeFakeShims(opts: { fakeBinDir: string }): void {
     `#!/usr/bin/env bash\nexec bun "${fakeGhImpl}" "$@"\n`,
     'utf8',
   );
-  writeFileSync(
-    join(opts.fakeBinDir, 'claude'),
-    `#!/usr/bin/env bash\nexec bun "${fakeToolImpl}" "$@"\n`,
-    'utf8',
-  );
+  // Same fake-tool impl for all three tool names — they share the
+  // shim, only the runner's per-tool argv shape differs (which is
+  // exactly what the argv log lets the tests assert on).
+  for (const name of ['claude', 'codex', 'copilot']) {
+    writeFileSync(
+      join(opts.fakeBinDir, name),
+      `#!/usr/bin/env bash\nexec bun "${fakeToolImpl}" "$@"\n`,
+      'utf8',
+    );
+    chmodSync(join(opts.fakeBinDir, name), 0o755);
+  }
   if (isWin) {
     writeFileSync(
       join(opts.fakeBinDir, 'gh.cmd'),
       `@echo off\r\nbun "${fakeGhImpl}" %*\r\n`,
       'utf8',
     );
-    writeFileSync(
-      join(opts.fakeBinDir, 'claude.cmd'),
-      `@echo off\r\nbun "${fakeToolImpl}" %*\r\n`,
-      'utf8',
-    );
+    for (const name of ['claude', 'codex', 'copilot']) {
+      writeFileSync(
+        join(opts.fakeBinDir, `${name}.cmd`),
+        `@echo off\r\nbun "${fakeToolImpl}" %*\r\n`,
+        'utf8',
+      );
+    }
   }
   chmodSync(join(opts.fakeBinDir, 'gh'), 0o755);
-  chmodSync(join(opts.fakeBinDir, 'claude'), 0o755);
 }
 
 /**

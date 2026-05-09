@@ -61,9 +61,18 @@ When you add a new I/O module: pick a fixture from the matrix, follow the per-fi
 ## How to add a new adapter
 
 1. Add the tool string to `TOOLS` in `src/args.ts`.
-2. Add the tool name to the `case` in `scripts/handoff-runner.sh` and the `ValidateSet` in `scripts/handoff-runner.ps1` (the runner scripts invoke the tool binary directly — currently the tool name == binary name).
+2. Add the tool name to the per-tool invocation table in **both** `scripts/handoff-runner.sh` and `scripts/handoff-runner.ps1`, plus the `ValidateSet` in the latter. The runner scripts invoke the tool binary directly (currently the tool name == binary name) — but the argv shape differs per tool (see table below), so a new adapter must declare which shape it uses.
 3. Update `README.md` requirements list.
 4. Add a test for the new tool path in `tests/args.test.ts`.
+5. Add a per-tool argv-shape case to `tests/runner-bash.integration.test.ts` and `tests/runner-ps1.integration.test.ts` so the contract is pinned end-to-end.
+
+### Per-tool invocation table
+
+| Tool      | Argv shape            | Why                                                                                                                                                                                                                                                                                                                                           |
+| --------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `claude`  | `claude <PROMPT>`     | Accepts a positional `[prompt]` (interactive seeded session).                                                                                                                                                                                                                                                                                 |
+| `codex`   | `codex <PROMPT>`      | Same — `codex [OPTIONS] [PROMPT]`.                                                                                                                                                                                                                                                                                                            |
+| `copilot` | `copilot -i <PROMPT>` | A bare positional is parsed as a subcommand and exits silently (issue #57). `-i, --interactive <prompt>` "starts interactive mode and automatically executes this prompt" — same UX as the others. Avoid `-p/--prompt`: that's non-interactive and exits after completion, which would close the terminal before the user sees what happened. |
 
 ## The `.handoff/` workspace directory
 

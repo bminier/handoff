@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
 import {
   createRunnerHarness,
@@ -26,6 +26,12 @@ interface RunOpts {
   ghPrListResponse?: unknown;
   /** Force the fake gh to exit non-zero (drives cleanup's unknown-status path). */
   ghFail?: boolean;
+  /**
+   * Tool name to invoke through the runner. Defaults to `'claude'` to
+   * keep existing tests untouched; per-tool argv-shape tests pass
+   * `'codex'` / `'copilot'` to exercise the runner's per-tool switch.
+   */
+  tool?: 'claude' | 'codex' | 'copilot';
 }
 
 function runBashRunner(h: RunnerHarness, opts: RunOpts = {}) {
@@ -38,6 +44,7 @@ function runBashRunner(h: RunnerHarness, opts: RunOpts = {}) {
         : JSON.stringify(opts.ghPrListResponse),
     ...(opts.ghFail ? { FAKE_GH_FAIL: '1' } : {}),
   };
+  const tool = opts.tool ?? 'claude';
   // Set cwd by `cd`-ing inside the bash command rather than passing it
   // through `spawnSync({ cwd })`. On Windows, bun's spawnSync holds a
   // handle on the cwd it was given for the duration of its own
@@ -52,7 +59,7 @@ function runBashRunner(h: RunnerHarness, opts: RunOpts = {}) {
   // it. `bash <runner>` works regardless of file mode.
   const wt = h.worktreePath.replace(/\\/g, '/');
   const runner = h.runnerScript.replace(/\\/g, '/');
-  const cmd = `cd "${wt}" && bash "${runner}" "${h.handoffRepoRoot}" claude "${h.branch}"`;
+  const cmd = `cd "${wt}" && bash "${runner}" "${h.handoffRepoRoot}" ${tool} "${h.branch}"`;
   return spawnSync(bash!, ['-c', cmd], {
     env,
     encoding: 'utf8',
@@ -60,6 +67,15 @@ function runBashRunner(h: RunnerHarness, opts: RunOpts = {}) {
     // skips the trailing prompt.
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+}
+
+/** Read the JSON-per-line argv log left by fake-tool-impl.ts. */
+function readArgvLog(path: string): string[][] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as string[]);
 }
 
 function expectExit(
@@ -210,4 +226,45 @@ describeBash('handoff-runner.sh', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('PROMPT.md not found');
   });
+
+  // Per-tool argv shape — the regression behind issue #57. Three tools,
+  // two shapes: claude/codex take the prompt as a positional arg;
+  // copilot needs `-i <prompt>` because a bare positional is parsed as
+  // a subcommand and exits silently. The runner table is the source of
+  // truth; these tests pin the contract.
+  for (const tool of ['claude', 'codex', 'copilot'] as const) {
+    it(
+      `${tool}: runner passes PROMPT.md content with the right argv shape`,
+      () => {
+        const promptBody = `# seed prompt for ${tool}\nDo the thing.\n`;
+        harness = createRunnerHarness({
+          target: 'bash',
+          branch: `${tool}/issue-57`,
+          promptBody,
+        });
+
+        const result = runBashRunner(harness, {
+          tool,
+          toolExit: 0,
+          ghPrListResponse: [{ number: 57 }],
+        });
+        expectExit(result, 0, `bash ${tool} argv`);
+
+        const calls = readArgvLog(harness.argvLogPath);
+        expect(calls.length).toBe(1);
+        const argv = calls[0]!;
+        // Trailing newlines are stripped: PROMPT="$(cat …)" drops
+        // them (POSIX-mandated for command substitution), so the tool
+        // sees the prompt without its final \n. Internal newlines are
+        // preserved verbatim.
+        const expected = promptBody.replace(/\n+$/, '');
+        if (tool === 'copilot') {
+          expect(argv).toEqual(['-i', expected]);
+        } else {
+          expect(argv).toEqual([expected]);
+        }
+      },
+      TIMEOUT_MS,
+    );
+  }
 });

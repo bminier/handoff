@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { platform } from 'node:os';
 
 import {
@@ -30,6 +30,11 @@ interface RunOpts {
   toolExit?: number;
   ghPrListResponse?: unknown;
   ghFail?: boolean;
+  /**
+   * Tool name to invoke. Defaults to `'claude'` so existing tests stay
+   * untouched; per-tool argv-shape tests pass `'codex'` / `'copilot'`.
+   */
+  tool?: 'claude' | 'codex' | 'copilot';
 }
 
 function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
@@ -42,6 +47,7 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
         : JSON.stringify(opts.ghPrListResponse),
     ...(opts.ghFail ? { FAKE_GH_FAIL: '1' } : {}),
   };
+  const tool = opts.tool ?? 'claude';
   // -NoProfile keeps the test hermetic against the user's PowerShell
   // profile. -ExecutionPolicy Bypass avoids the unsigned-script block
   // CI runners sometimes hit on first invocation.
@@ -65,7 +71,7 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
       'Bypass',
       '-Command',
       `Set-Location -LiteralPath '${psQuote(h.worktreePath)}'; ` +
-        `& '${psQuote(h.runnerScript)}' '${psQuote(h.handoffRepoRoot)}' 'claude' '${psQuote(h.branch)}'; ` +
+        `& '${psQuote(h.runnerScript)}' '${psQuote(h.handoffRepoRoot)}' '${tool}' '${psQuote(h.branch)}'; ` +
         `exit $LASTEXITCODE`,
     ],
     {
@@ -80,6 +86,15 @@ function runPwshRunner(h: RunnerHarness, opts: RunOpts = {}) {
 
 function psQuote(s: string): string {
   return s.replace(/'/g, "''");
+}
+
+/** Read the JSON-per-line argv log left by fake-tool-impl.ts. */
+function readArgvLog(path: string): string[][] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line) as string[]);
 }
 
 function expectExit(
@@ -188,4 +203,48 @@ describePwsh('handoff-runner.ps1', () => {
     const combined = (result.stdout ?? '') + (result.stderr ?? '');
     expect(combined).toContain('PROMPT.md not found');
   });
+
+  // Per-tool argv shape — the regression behind issue #57. claude/codex
+  // take the prompt as a positional arg; copilot needs `-i <prompt>`
+  // because a bare positional is parsed as a subcommand and exits
+  // silently. Mirrors the bash matrix; runs against the .ps1 runner so
+  // a divergence between the two scripts trips here.
+  //
+  // Prompt body is intentionally single-line: the shim chain on Windows
+  // is `pwsh → .cmd → bun → fake-tool-impl.ts`, and `%*` in a .cmd file
+  // is reparsed by cmd.exe, where newlines act as command separators
+  // and truncate multi-line args. Production calls real `copilot.exe`,
+  // which parses its own Win32 command line and is unaffected. The
+  // contract we're pinning is per-tool argv shape (positional vs `-i`),
+  // not multi-line prompt preservation.
+  for (const tool of ['claude', 'codex', 'copilot'] as const) {
+    it(
+      `${tool}: runner passes PROMPT.md content with the right argv shape`,
+      () => {
+        const promptBody = `seed prompt for ${tool}`;
+        harness = createRunnerHarness({
+          target: 'pwsh',
+          branch: `${tool}/issue-57`,
+          promptBody,
+        });
+
+        const result = runPwshRunner(harness, {
+          tool,
+          toolExit: 0,
+          ghPrListResponse: [{ number: 57 }],
+        });
+        expectExit(result, 0, `pwsh ${tool} argv`);
+
+        const calls = readArgvLog(harness.argvLogPath);
+        expect(calls.length).toBe(1);
+        const argv = calls[0]!;
+        if (tool === 'copilot') {
+          expect(argv).toEqual(['-i', promptBody]);
+        } else {
+          expect(argv).toEqual([promptBody]);
+        }
+      },
+      TIMEOUT_MS,
+    );
+  }
 });
