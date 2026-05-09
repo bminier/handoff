@@ -135,7 +135,7 @@ async function runCleanup(branch: string, force: boolean): Promise<number> {
   emitFireAndForget(
     eventCleanup({
       tool: state?.tool ?? 'unknown',
-      outcome: cleanupOutcome(result),
+      outcome: cleanupOutcome(result, force),
       durationMs,
     }),
   );
@@ -146,10 +146,14 @@ async function runCleanup(branch: string, force: boolean): Promise<number> {
   return result.status === 'unknown' ? 2 : 0;
 }
 
-function cleanupOutcome(result: CleanupResult): CleanupOutcome {
+function cleanupOutcome(result: CleanupResult, force: boolean): CleanupOutcome {
   switch (result.status) {
     case 'removed':
-      return 'merged';
+      // Distinguish forced from merged so analytics can track how often
+      // the safety check is bypassed. The result message already carries
+      // the same distinction in human-readable form ("forced — merge
+      // check skipped" vs "PR merged"); telemetry mirrors that.
+      return force ? 'forced' : 'merged';
     case 'retained':
       return 'retained';
     case 'unknown':
