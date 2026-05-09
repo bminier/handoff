@@ -145,8 +145,11 @@ describePwsh('handoff-runner.ps1', () => {
       });
 
       expectExit(result, 0, 'pwsh PR not merged');
-      expect(result.stdout).toContain('not merged');
+      expect(result.stdout).toContain('No merged PR has claude/issue-8 as its head');
       expect(result.stdout).toContain('Worktree retained');
+      // Issue #54: pin the --force discoverability hint so it doesn't
+      // get copy-edited away unnoticed (mirrored in the bash matrix).
+      expect(result.stdout).toContain('handoff cleanup --force claude/issue-8');
       expect(existsSync(harness.worktreePath)).toBe(true);
       harness.repo.git(['show-ref', '--verify', '--quiet', 'refs/heads/claude/issue-8']);
     },

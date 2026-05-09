@@ -22,6 +22,14 @@ export interface ParsedArgs {
 export interface CleanupArgs {
   command: 'cleanup';
   branch: string;
+  /**
+   * Skip the gh-merged-PR safety check and tear down the worktree +
+   * branch unconditionally. Escape hatch for orphan worktrees whose
+   * work shipped under a different branch name (rebased, renamed,
+   * force-pushed to a sibling) — `gh pr list --head <branch>` returns
+   * empty for those, so the default cleanup correctly retains them.
+   */
+  force: boolean;
 }
 
 export const TELEMETRY_SUBCOMMANDS = ['enable', 'disable', 'status', 'log'] as const;
@@ -184,13 +192,28 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   if (head === 'cleanup') {
     // No free-form mode under `cleanup` — global flags can appear anywhere
     // between the subcommand and the branch arg, e.g.
-    // `handoff cleanup --verbose <branch>`.
-    const rest = stripGlobalFlags(trimmed.slice(1));
-    const branch = rest[0];
-    if (branch === undefined || branch.trim() === '') {
-      throw new ArgsError('Usage: handoff cleanup <branch>');
+    // `handoff cleanup --verbose <branch>`. Same logic for `--force`,
+    // which is cleanup-specific and may sit before or after the branch.
+    const tail = stripGlobalFlags(trimmed.slice(1));
+    let force = false;
+    const positionals: string[] = [];
+    for (const tok of tail) {
+      if (tok === '--force') {
+        force = true;
+        continue;
+      }
+      positionals.push(tok);
     }
-    return { command: 'cleanup', branch };
+    const branch = positionals[0];
+    if (branch === undefined || branch.trim() === '') {
+      throw new ArgsError('Usage: handoff cleanup [--force] <branch>');
+    }
+    if (positionals.length > 1) {
+      throw new ArgsError(
+        `'handoff cleanup' takes a single <branch> argument (got ${positionals.length}).`,
+      );
+    }
+    return { command: 'cleanup', branch, force };
   }
 
   if (head === 'telemetry') {

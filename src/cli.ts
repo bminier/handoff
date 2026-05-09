@@ -95,14 +95,14 @@ async function main(rawArgv: readonly string[]): Promise<number> {
       return await runTelemetry(invocation);
     }
     showFirstRunBanner();
-    return await runCleanup(invocation.branch);
+    return await runCleanup(invocation.branch, invocation.force);
   }
 
   showFirstRunBanner();
   return await runHandoffs(invocation.tool, invocation.refs, invocation.loop);
 }
 
-async function runCleanup(branch: string): Promise<number> {
+async function runCleanup(branch: string, force: boolean): Promise<number> {
   const repoRoot = await mainRepoRoot();
   const path = worktreePath({ repoRoot, branch });
   const state = safeReadState(path);
@@ -125,9 +125,9 @@ async function runCleanup(branch: string): Promise<number> {
     }
   }
 
-  verbose(`cleanup: branch = ${branch}, worktree = ${path}`);
+  verbose(`cleanup: branch = ${branch}, worktree = ${path}, force = ${force}`);
   const t0 = Date.now();
-  const result = await cleanup(branch, { repoRoot });
+  const result = await cleanup(branch, { repoRoot, force });
   verbose(`cleanup: result = ${result.status}`);
   console.log(result.message);
 

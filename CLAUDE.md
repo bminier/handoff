@@ -9,7 +9,7 @@
 | File                         | Responsibility                                                            | Pure? |
 | ---------------------------- | ------------------------------------------------------------------------- | ----- |
 | `src/cli.ts`                 | Entrypoint. Parses argv, fans out to subcommands, isolates per-ref errors | no    |
-| `src/args.ts`                | Argv → `{ tool, refs[], loop } \| { command: 'cleanup', branch }`         | yes   |
+| `src/args.ts`                | Argv → `{ tool, refs[], loop } \| { command: 'cleanup', branch, force }`  | yes   |
 | `src/slug.ts`                | Title → kebab-case slug                                                   | yes   |
 | `src/branch.ts`              | Branch + worktree path naming                                             | yes   |
 | `src/prompt.ts`              | `PROMPT.md` template renderer                                             | yes   |

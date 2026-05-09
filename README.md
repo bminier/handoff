@@ -111,6 +111,14 @@ handoff cleanup claude/issue-42
 
 This re-checks the PR state and removes the worktree + branch if merged.
 
+If the work shipped under a different branch (rebased, renamed, force-pushed to a sibling), `gh pr list --head <branch>` returns empty and the worktree is correctly retained — the merge-check has no proof. Use `--force` to remove the orphan worktree without the safety check:
+
+```bash
+handoff cleanup --force claude/issue-42
+```
+
+`--force` is also the escape hatch when `gh` itself is broken (rate-limited, unauthenticated). Reach for it when you've verified the work is shipped, not as a default — the merge-check exists to keep `handoff cleanup` from eating in-progress work.
+
 ### Verbose / debug logging
 
 Two global flags for when you want to see what `handoff` is doing under the hood:
