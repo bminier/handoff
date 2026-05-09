@@ -9,9 +9,9 @@ import {
   extractGlobalFlags,
   parseInvocation,
   type Ref,
-  type Tool,
   type TelemetryArgs,
 } from './args.ts';
+import type { Tool } from './tools.ts';
 import { HandoffError } from './errors.ts';
 import { setDebug, setVerbose, verbose } from './logger.ts';
 import { branchName, worktreePath } from './branch.ts';

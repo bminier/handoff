@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import type { Tool } from './args.ts';
+import type { Tool } from './tools.ts';
 import { HandoffError } from './errors.ts';
 
 export const HOME_DIRNAME = '.handoff';

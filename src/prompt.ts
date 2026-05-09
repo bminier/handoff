@@ -1,4 +1,4 @@
-import type { Tool } from './args.ts';
+import type { Tool } from './tools.ts';
 
 export interface PromptContext {
   tool: Tool;

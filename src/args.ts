@@ -1,4 +1,3 @@
-export { TOOLS, type Tool } from './tools.ts';
 import { TOOLS, type Tool } from './tools.ts';
 
 export interface IssueRef {

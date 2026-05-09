@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import type { Tool } from './args.ts';
+import type { Tool } from './tools.ts';
 import { HandoffError } from './errors.ts';
 
 export const WORKSPACE_DIRNAME = '.handoff';
