@@ -20,7 +20,21 @@ if (-not (Test-Path 'PROMPT.md')) {
 
 $prompt = Get-Content -Path 'PROMPT.md' -Raw
 
-& $Tool $prompt
+# Per-tool invocation table. claude and codex both accept a positional
+# [PROMPT] for interactive seeded sessions. copilot does NOT — it parses
+# a bare positional as a subcommand and exits silently. Use copilot's
+# `-i, --interactive <prompt>` flag, which starts interactive mode and
+# automatically executes the seed prompt — same UX as claude/codex.
+# When you add a new tool, mirror the change in handoff-runner.sh and
+# the per-tool table in CLAUDE.md ("How to add a new adapter").
+switch ($Tool) {
+  { $_ -in 'claude', 'codex' } { & $Tool $prompt }
+  'copilot' { & $Tool -i $prompt }
+  default {
+    Write-Error "handoff-runner: unknown tool '$Tool'"
+    exit 64
+  }
+}
 $toolExit = $LASTEXITCODE
 
 Write-Host ''
