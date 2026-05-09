@@ -1,5 +1,5 @@
-export const TOOLS = ['claude', 'codex', 'copilot'] as const;
-export type Tool = (typeof TOOLS)[number];
+export { TOOLS, type Tool } from './tools.ts';
+import { TOOLS, type Tool } from './tools.ts';
 
 export interface IssueRef {
   kind: 'issue';
@@ -226,7 +226,7 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
         `'handoff cleanup --force' refused: '${branch}' isn't a handoff branch ` +
           `(expected '<tool>/issue-<N>', '<tool>/pr-<N>', or '<tool>/<slug>' ` +
           `with <tool> in: ${TOOLS.join(', ')}). ` +
-          `If you really meant to delete this branch, use \`git branch -D ${branch}\` directly.`,
+          `If you really meant to delete this branch, use \`git branch -D -- ${branch}\` directly.`,
       );
     }
     return { command: 'cleanup', branch, force };

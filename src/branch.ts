@@ -1,5 +1,5 @@
 import { basename, dirname, join } from 'node:path';
-import { TOOLS, type Tool } from './args.ts';
+import { TOOLS, type Tool } from './tools.ts';
 
 export interface BranchInput {
   tool: Tool;
@@ -44,29 +44,15 @@ export function branchTail(branch: string): string {
  * legitimate handoff branches always pass.
  */
 export function isHandoffBranch(branch: string): boolean {
-  return handoffBranchRe().test(branch);
+  return HANDOFF_BRANCH_RE.test(branch);
 }
 
-let _handoffBranchRe: RegExp | undefined;
-
-// Lazy-built so we don't read TOOLS at module-load time. args.ts and
-// branch.ts have a circular import (args.ts → isHandoffBranch ← branch.ts
-// ← TOOLS) — building the regex inside the function defers TOOLS access
-// until first call, by which time both modules have finished initializing.
-function handoffBranchRe(): RegExp {
-  if (_handoffBranchRe) return _handoffBranchRe;
-  const toolAlternation = TOOLS.map(escapeForRegex).join('|');
-  // Tail forms (matching branchName):
-  //   issue-<N>, pr-<N>  — N is one or more decimal digits
-  //   <slug>             — kebab-case alphanumeric per slugify()
+const HANDOFF_BRANCH_RE = (() => {
+  const toolAlternation = TOOLS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // Tail forms (matching branchName): issue-<N>, pr-<N>, or kebab-case slug.
   const tail = String.raw`(?:issue-\d+|pr-\d+|[a-z0-9]+(?:-[a-z0-9]+)*)`;
-  _handoffBranchRe = new RegExp(`^(?:${toolAlternation})/${tail}$`);
-  return _handoffBranchRe;
-}
-
-function escapeForRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
+  return new RegExp(`^(?:${toolAlternation})/${tail}$`);
+})();
 
 export interface WorktreePathInput {
   repoRoot: string;
