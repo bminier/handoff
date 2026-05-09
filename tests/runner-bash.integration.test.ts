@@ -253,14 +253,15 @@ describeBash('handoff-runner.sh', () => {
         const calls = readArgvLog(harness.argvLogPath);
         expect(calls.length).toBe(1);
         const argv = calls[0]!;
+        // Trailing newlines are stripped: PROMPT="$(cat …)" drops
+        // them (POSIX-mandated for command substitution), so the tool
+        // sees the prompt without its final \n. Internal newlines are
+        // preserved verbatim.
+        const expected = promptBody.replace(/\n+$/, '');
         if (tool === 'copilot') {
-          // Trailing newline is preserved because PROMPT="$(cat …)"
-          // strips trailing newlines in bash (POSIX-mandated for
-          // command substitution). The body the tool sees is the
-          // newline-trimmed prompt.
-          expect(argv).toEqual(['-i', promptBody.replace(/\n+$/, '')]);
+          expect(argv).toEqual(['-i', expected]);
         } else {
-          expect(argv).toEqual([promptBody.replace(/\n+$/, '')]);
+          expect(argv).toEqual([expected]);
         }
       },
       TIMEOUT_MS,
