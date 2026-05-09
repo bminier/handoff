@@ -44,6 +44,7 @@ export type TelemetryArgs =
 export type CliInvocation = ParsedArgs | CleanupArgs | TelemetryArgs;
 
 import { HandoffError } from './errors.ts';
+import { isHandoffBranch } from './branch.ts';
 
 export class ArgsError extends HandoffError {
   constructor(message: string) {
@@ -211,6 +212,21 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     if (positionals.length > 1) {
       throw new ArgsError(
         `'handoff cleanup' takes a single <branch> argument (got ${positionals.length}).`,
+      );
+    }
+    // --force opts out of the merge-check safety property. Substitute a
+    // name-shape check so a typo'd or non-handoff branch can't trigger
+    // an unconditional `git branch -D`. Legitimate handoff branches
+    // always match `<tool>/issue-<N>`, `<tool>/pr-<N>`, or `<tool>/<slug>`
+    // (the shapes branchName() emits). Non-force cleanup remains
+    // permissive — the gh-merged-PR check refuses non-handoff branches
+    // implicitly.
+    if (force && !isHandoffBranch(branch)) {
+      throw new ArgsError(
+        `'handoff cleanup --force' refused: '${branch}' isn't a handoff branch ` +
+          `(expected '<tool>/issue-<N>', '<tool>/pr-<N>', or '<tool>/<slug>' ` +
+          `with <tool> in: ${TOOLS.join(', ')}). ` +
+          `If you really meant to delete this branch, use \`git branch -D ${branch}\` directly.`,
       );
     }
     return { command: 'cleanup', branch, force };
