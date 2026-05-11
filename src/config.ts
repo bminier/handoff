@@ -1,4 +1,4 @@
-import { DEFAULT_TOOL } from './tools.ts';
+import { DEFAULT_TOOL, type Tool } from './tools.ts';
 
 /** Single source of truth for the package version, mirrored from package.json. */
 export const VERSION = '0.3.0-dev';
@@ -7,13 +7,15 @@ export const VERSION = '0.3.0-dev';
 // row that matches DEFAULT_TOOL. Centralizes the default so a future
 // change to DEFAULT_TOOL (or to its source in #20's config work) doesn't
 // require a parallel edit to HELP. Two-space gap before the marker
-// matches the existing column rhythm in this section.
-const TOOL_ROWS: Record<string, string> = {
+// matches the existing column rhythm in this section. `satisfies
+// Record<Tool, string>` makes adding a new entry to TOOLS in
+// src/tools.ts without a matching row here a compile error.
+const TOOL_ROWS = {
   claude: '  claude    Anthropic Claude Code CLI',
   codex: '  codex     OpenAI Codex CLI',
   copilot: '  copilot   GitHub Copilot CLI',
-};
-const TOOLS_SECTION = Object.entries(TOOL_ROWS)
+} satisfies Record<Tool, string>;
+const TOOLS_SECTION = (Object.entries(TOOL_ROWS) as [Tool, string][])
   .map(([tool, row]) => (tool === DEFAULT_TOOL ? `${row}  (default when omitted)` : row))
   .join('\n');
 
