@@ -489,4 +489,42 @@ describe('extractGlobalFlags', () => {
       extractGlobalFlags(['telemetry', 'enable', '--verbose', '--endpoint', 'https://x.test/t']),
     ).toEqual({ verbose: true, debug: false });
   });
+
+  // #58: extractGlobalFlags must handle invocations where the tool token is
+  // omitted (argv[0] is a ref or free-form word). The function decides
+  // whether to consume argv[0] based on isTool/isSubcommand, so the
+  // omitted-tool case feeds the head into the ref-scan loop.
+  it('detects --verbose before an omitted-tool #N ref', () => {
+    // handoff --verbose #1   → claude (default), --verbose extracted
+    expect(extractGlobalFlags(['--verbose', '#1'])).toEqual({
+      verbose: true,
+      debug: false,
+    });
+  });
+
+  it('detects --debug after an omitted-tool #N ref', () => {
+    // handoff #1 --debug   → claude (default), --debug extracted from refs region
+    expect(extractGlobalFlags(['#1', '--debug'])).toEqual({
+      verbose: false,
+      debug: true,
+    });
+  });
+
+  it('does NOT detect --verbose embedded in an omitted-tool free-form description', () => {
+    // handoff fix the --verbose flag   → claude (default), free-form starts
+    // at "fix"; --verbose inside the description must not toggle logging.
+    expect(extractGlobalFlags(['fix', 'the', '--verbose', 'flag'])).toEqual({
+      verbose: false,
+      debug: false,
+    });
+  });
+
+  it('detects --verbose before omitted-tool free-form starts', () => {
+    // handoff --verbose fix the --verbose flag   → --verbose before "fix"
+    // is a flag; --verbose after is free-form text.
+    expect(extractGlobalFlags(['--verbose', 'fix', 'the', '--verbose', 'flag'])).toEqual({
+      verbose: true,
+      debug: false,
+    });
+  });
 });
