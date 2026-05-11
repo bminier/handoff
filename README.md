@@ -63,7 +63,7 @@ This:
 2. Creates branch `claude/issue-42` off the repo's default branch.
 3. Adds a worktree as a sibling directory: `<repo-parent>/<repo>-issue-42`.
 4. Writes `PROMPT.md` to the worktree with the issue, the branch, and a workflow contract.
-5. Spawns a new terminal window in that worktree, running `claude "$(cat PROMPT.md)"`.
+5. Spawns a new terminal window in that worktree and runs the chosen tool with the prompt — `claude "$(cat PROMPT.md)"` and `codex "$(cat PROMPT.md)"` for those two; `copilot -i "$(cat PROMPT.md)"` for copilot (its CLI parses bare positionals as subcommands, so the `-i` flag is required to seed an interactive session). The per-tool argv table lives in `scripts/handoff-runner.{sh,ps1}`.
 
 The agent does the work, commits, pushes, opens a PR. When it exits, the wrapper checks `gh pr list --head <branch> --state merged` — if the PR has merged, the worktree and branch are removed.
 
@@ -162,7 +162,7 @@ scripts/
 .claude/commands/handoff.md  — Claude Code slash command
 ```
 
-A handoff is one PR. Cleanup is conditional on `gh pr list --head <branch> --state merged` returning a result; nothing else will trigger worktree removal.
+A handoff is one PR. Cleanup is conditional on `gh pr list --head <branch> --state merged` returning a result — that's the safety property. The one opt-in escape hatch is `handoff cleanup --force <branch>`, which skips the merge check for orphan worktrees whose work shipped under a different branch (see [Cleanup](#cleanup) above). `--force` is restricted to handoff-shaped branch names so a typo can't unconditionally delete unrelated local branches.
 
 ### The `.handoff/` workspace directory
 

@@ -120,6 +120,46 @@ describe('parseInvocation', () => {
     expect(() => parseInvocation(['cleanup', 'a', 'b'])).toThrow(/single <branch>/);
   });
 
+  it('rejects --force on a non-handoff branch', () => {
+    // The codex-challenge finding (v0.2.1 follow-up): without this guard,
+    // `handoff cleanup --force experiment` would happily `git branch -D
+    // experiment`. The merge-check is the safety property without --force;
+    // this is its substitute when --force is on.
+    expect(() => parseInvocation(['cleanup', '--force', 'experiment'])).toThrow(
+      /isn't a handoff branch/,
+    );
+    expect(() => parseInvocation(['cleanup', '--force', 'main'])).toThrow(/isn't a handoff branch/);
+    expect(() => parseInvocation(['cleanup', '--force', 'feature/x'])).toThrow(
+      /isn't a handoff branch/,
+    );
+  });
+
+  it('allows --force on a legitimate handoff branch', () => {
+    // The guard above must NOT regress the orphan-cleanup case from #54
+    // (handoff branch whose work shipped under a different branch name).
+    expect(parseInvocation(['cleanup', '--force', 'claude/issue-7'])).toEqual({
+      command: 'cleanup',
+      branch: 'claude/issue-7',
+      force: true,
+    });
+    expect(parseInvocation(['cleanup', '--force', 'codex/cleanup-readme'])).toEqual({
+      command: 'cleanup',
+      branch: 'codex/cleanup-readme',
+      force: true,
+    });
+  });
+
+  it('non-force cleanup still allows arbitrary branch names', () => {
+    // Without --force, the merge-check (gh pr list --head) is the safety
+    // property — it implicitly refuses non-handoff branches by returning
+    // empty. We don't second-guess at the args layer.
+    expect(parseInvocation(['cleanup', 'experiment'])).toEqual({
+      command: 'cleanup',
+      branch: 'experiment',
+      force: false,
+    });
+  });
+
   it('rejects unknown tool', () => {
     expect(() => parseInvocation(['bard', '#1'])).toThrow(ArgsError);
   });

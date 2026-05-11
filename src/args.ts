@@ -1,5 +1,4 @@
-export const TOOLS = ['claude', 'codex', 'copilot'] as const;
-export type Tool = (typeof TOOLS)[number];
+import { TOOLS, type Tool } from './tools.ts';
 
 export interface IssueRef {
   kind: 'issue';
@@ -44,6 +43,7 @@ export type TelemetryArgs =
 export type CliInvocation = ParsedArgs | CleanupArgs | TelemetryArgs;
 
 import { HandoffError } from './errors.ts';
+import { isHandoffBranch } from './branch.ts';
 
 export class ArgsError extends HandoffError {
   constructor(message: string) {
@@ -211,6 +211,27 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     if (positionals.length > 1) {
       throw new ArgsError(
         `'handoff cleanup' takes a single <branch> argument (got ${positionals.length}).`,
+      );
+    }
+    // --force opts out of the merge-check safety property. Substitute a
+    // name-shape check so a typo'd or non-handoff branch can't trigger
+    // an unconditional `git branch -D`. Legitimate handoff branches
+    // always match `<tool>/issue-<N>`, `<tool>/pr-<N>`, or `<tool>/<slug>`
+    // (the shapes branchName() emits). Non-force cleanup remains
+    // permissive — the gh-merged-PR check refuses non-handoff branches
+    // implicitly.
+    if (force && !isHandoffBranch(branch)) {
+      // POSIX single-quote the rejected name in the hint: this code path
+      // accepts arbitrary user input (the whole point is that isHandoffBranch
+      // refused it), so embedding it raw in a copy/pastable shell command
+      // would be a copy-paste injection hazard for branch names with shell
+      // metacharacters like `;`, `$()`, or backticks.
+      const quoted = `'${branch.replace(/'/g, `'\\''`)}'`;
+      throw new ArgsError(
+        `'handoff cleanup --force' refused: '${branch}' isn't a handoff branch ` +
+          `(expected '<tool>/issue-<N>', '<tool>/pr-<N>', or '<tool>/<slug>' ` +
+          `with <tool> in: ${TOOLS.join(', ')}). ` +
+          `If you really meant to delete this branch, use \`git branch -D -- ${quoted}\` directly.`,
       );
     }
     return { command: 'cleanup', branch, force };

@@ -1,5 +1,5 @@
 import { basename, dirname, join } from 'node:path';
-import type { Tool } from './args.ts';
+import { TOOLS, type Tool } from './tools.ts';
 
 export interface BranchInput {
   tool: Tool;
@@ -29,6 +29,30 @@ export function branchTail(branch: string): string {
   const slash = branch.indexOf('/');
   return slash === -1 ? branch : branch.slice(slash + 1);
 }
+
+/**
+ * True iff `branch` could have been produced by `branchName()` — i.e. the
+ * shape is `<tool>/issue-<N>`, `<tool>/pr-<N>`, or `<tool>/<slug>` with
+ * `<tool>` ∈ TOOLS and `<slug>` matching the kebab-case form `slugify()`
+ * emits (lowercase alphanumeric tokens joined by single dashes, no
+ * leading/trailing dashes, no double dashes).
+ *
+ * Used by `cleanup --force` as a guard so a typo'd or non-handoff branch
+ * name can't trigger an unconditional `git branch -D`. Without `--force`
+ * the merge-check is the safety property; with `--force` the user is
+ * opting out of that check, so we substitute a name-shape check that
+ * legitimate handoff branches always pass.
+ */
+export function isHandoffBranch(branch: string): boolean {
+  return HANDOFF_BRANCH_RE.test(branch);
+}
+
+const HANDOFF_BRANCH_RE = (() => {
+  const toolAlternation = TOOLS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // Tail forms (matching branchName): issue-<N>, pr-<N>, or kebab-case slug.
+  const tail = String.raw`(?:issue-\d+|pr-\d+|[a-z0-9]+(?:-[a-z0-9]+)*)`;
+  return new RegExp(`^(?:${toolAlternation})/${tail}$`);
+})();
 
 export interface WorktreePathInput {
   repoRoot: string;
