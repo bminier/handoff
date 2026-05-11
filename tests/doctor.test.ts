@@ -73,7 +73,7 @@ describe('runDoctor', () => {
   });
 
   it('narrows the per-tool checks when tools is non-empty', async () => {
-    // `handoff doctor claude` → 6 common + 1 tool. The other two tools
+    // `handoff doctor claude` → 7 common + 1 tool. The other two tools
     // are not checked even if they happen to be missing.
     const probe = fakeProbe({
       ...{
@@ -217,6 +217,23 @@ describe('individual checks', () => {
     expect(term.status).toBe('pass');
     expect(term.message).toContain('gnome-terminal');
     expect(term.message).toContain('xterm');
+  });
+
+  it('terminal: darwin label is "Terminal.app via osascript", not "osascript"', async () => {
+    // The probe binary is osascript, but the emulator the user sees
+    // is Terminal.app — openTerminalOn dispatches to it via
+    // `tell application "Terminal" to do script ...`. Pin the
+    // user-facing label so the doctor output matches the CLI's actual
+    // launch model.
+    const probe = fakeProbe({
+      paths: { osascript: '/usr/bin/osascript', bash: '/bin/bash' },
+      platform: 'darwin',
+    });
+    const report = await runDoctor({ tools: [] }, probe);
+    const term = report.results.find((r) => r.name === 'terminal')!;
+    expect(term.status).toBe('pass');
+    expect(term.message).toContain('Terminal.app via osascript');
+    expect(term.message).not.toMatch(/terminal emulator: osascript\b/);
   });
 
   it('terminal-shell: missing bash on linux → warning', async () => {
