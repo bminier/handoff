@@ -143,6 +143,21 @@ describe('individual checks', () => {
     expect(auth.hint).toMatch(/gh auth login/);
   });
 
+  it('gh missing → gh-auth short-circuits with a pointer to gh-on-path', async () => {
+    // No `gh` on PATH: gh-auth must not run `gh auth status` (which would
+    // return exit -1 and report "gh is not authenticated" — misleading).
+    // Two distinct fail lines is the intended granularity (one per check),
+    // but the gh-auth message points at the real root cause.
+    const probe = fakeProbe({});
+    const report = await runDoctor({ tools: [] }, probe);
+    const auth = report.results.find((r) => r.name === 'gh-auth')!;
+    expect(auth.status).toBe('fail');
+    expect(auth.message).toMatch(/gh not on PATH/);
+    expect(auth.hint).toMatch(/gh-on-path/);
+    // The misleading legacy message must NOT appear.
+    expect(auth.message).not.toContain('not authenticated');
+  });
+
   it('not inside a git working tree → error', async () => {
     const probe = fakeProbe({
       paths: { git: '/usr/bin/git' },
@@ -157,6 +172,17 @@ describe('individual checks', () => {
     const repo = report.results.find((r) => r.name === 'inside-git-repo')!;
     expect(repo.status).toBe('fail');
     expect(repo.hint).toMatch(/cd into a git repo/);
+  });
+
+  it('git missing → inside-git-repo short-circuits with a pointer to git-on-path', async () => {
+    // Same short-circuit as gh-auth: don't run rev-parse when git isn't
+    // installed; surface the real cause.
+    const probe = fakeProbe({});
+    const report = await runDoctor({ tools: [] }, probe);
+    const repo = report.results.find((r) => r.name === 'inside-git-repo')!;
+    expect(repo.status).toBe('fail');
+    expect(repo.message).toMatch(/git not on PATH/);
+    expect(repo.hint).toMatch(/git-on-path/);
   });
 
   it('no terminal emulator → warning, not error', async () => {
