@@ -1,4 +1,4 @@
-import { TOOLS, type Tool } from './tools.ts';
+import { DEFAULT_TOOL, TOOLS, type Tool } from './tools.ts';
 
 export interface IssueRef {
   kind: 'issue';
@@ -117,13 +117,20 @@ export function extractGlobalFlags(argv: readonly string[]): { verbose: boolean;
     i++;
   }
 
-  // Skip the tool/command name token.
   if (i >= argv.length) return { verbose, debug };
-  const head = argv[i];
-  i++;
+  const head = argv[i]!;
+
+  // Only consume the head token when it's a real tool name or a
+  // subcommand. With the default-tool support (issue #58), a leading
+  // ref like `#7` or a free-form word IS the first ref; the ref-scan
+  // loop below must see it.
+  const isSubcommand = head === 'cleanup' || head === 'telemetry';
+  if (isTool(head) || isSubcommand) {
+    i++;
+  }
 
   // No free-form mode under cleanup / telemetry — scan the whole tail.
-  if (head === 'cleanup' || head === 'telemetry') {
+  if (isSubcommand) {
     while (i < argv.length) {
       const tok = argv[i]!;
       if (tok === '--verbose') verbose = true;
@@ -180,7 +187,8 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
 
   if (trimmed.length === 0) {
     throw new ArgsError(
-      'No arguments provided. Usage: handoff <tool> <ref...> | handoff cleanup <branch>',
+      `No arguments provided. Usage: handoff [<tool>] <ref...> | handoff cleanup <branch> ` +
+        `(<tool> defaults to ${DEFAULT_TOOL}).`,
     );
   }
 
@@ -243,17 +251,31 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     return parseTelemetry(stripGlobalFlags(trimmed.slice(1)));
   }
 
-  if (!isTool(head)) {
-    throw new ArgsError(
-      `Unknown tool '${head}'. Expected one of: ${TOOLS.join(', ')}, 'cleanup', or 'telemetry'.`,
-    );
+  // Default-tool resolution (#58): if argv[0] isn't a known tool name,
+  // treat the whole trimmed argv as the refs region and use DEFAULT_TOOL.
+  // Subcommands (`cleanup`, `telemetry`) were already matched above; we
+  // intentionally don't refuse "unknown tool" anymore — the dominant case
+  // is bare `handoff #N` (claude implied), so any non-tool head becomes
+  // part of the refs/free-form region. Side-effect: `handoff calude #1`
+  // (typo) parses as free-form text "calude #1" instead of erroring.
+  // Documented in README; quoting the description (`handoff "<task>"`)
+  // is the recommended way to disambiguate intentional free-form from
+  // a tool-name typo.
+  let tool: Tool;
+  let rest: string[];
+  if (isTool(head)) {
+    tool = head;
+    rest = trimmed.slice(1);
+  } else {
+    tool = DEFAULT_TOOL;
+    rest = [...trimmed];
   }
 
-  const rest = trimmed.slice(1);
   if (rest.length === 0) {
     throw new ArgsError(
-      `Missing reference. Usage: handoff ${head} <ref...> ` +
-        `(<ref> = #N, "Issue #N", or a free-form task description).`,
+      `Missing reference. Usage: handoff [<tool>] <ref...> ` +
+        `(<tool> defaults to ${DEFAULT_TOOL}; ` +
+        `<ref> = #N, "Issue #N", or a free-form task description).`,
     );
   }
 
@@ -305,21 +327,21 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     break;
   }
 
-  if (loop && head !== 'claude') {
+  if (loop && tool !== 'claude') {
     throw new ArgsError(
-      `--loop is only supported for the 'claude' tool (got '${head}'). ` +
+      `--loop is only supported for the 'claude' tool (got '${tool}'). ` +
         `codex and copilot run as ephemeral sessions and don't support staying resident for review cycles.`,
     );
   }
 
   if (refs.length === 0) {
     throw new ArgsError(
-      `Missing reference. Usage: handoff ${head} <ref...> ` +
+      `Missing reference. Usage: handoff ${tool} <ref...> ` +
         `(<ref> = #N, "Issue #N", or a free-form task description).`,
     );
   }
 
-  return { tool: head, refs, loop };
+  return { tool, refs, loop };
 }
 
 function isTelemetrySubcommand(value: string): value is TelemetrySubcommand {

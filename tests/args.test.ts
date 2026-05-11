@@ -202,8 +202,78 @@ describe('parseInvocation', () => {
     });
   });
 
-  it('rejects unknown tool', () => {
-    expect(() => parseInvocation(['bard', '#1'])).toThrow(ArgsError);
+  // #58: default-tool resolution — bare `handoff #N` / `handoff <free-form>`
+  // dispatches to claude. The previous "Unknown tool" hard refusal is gone:
+  // any non-tool, non-subcommand argv[0] is now the start of the refs
+  // region for DEFAULT_TOOL. See the docs/README for the typo trade-off.
+  it('defaults to claude when the tool is omitted with a #N ref', () => {
+    expect(parseInvocation(['#5'])).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'issue', number: 5 }],
+      loop: false,
+    });
+  });
+
+  it('defaults to claude when omitted with an "Issue N" ref', () => {
+    expect(parseInvocation(['Issue', '5'])).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'issue', number: 5 }],
+      loop: false,
+    });
+  });
+
+  it('defaults to claude when omitted with multiple #N refs', () => {
+    expect(parseInvocation(['#1', '#2', '#3'])).toEqual({
+      tool: 'claude',
+      refs: [
+        { kind: 'issue', number: 1 },
+        { kind: 'issue', number: 2 },
+        { kind: 'issue', number: 3 },
+      ],
+      loop: false,
+    });
+  });
+
+  it('defaults to claude for a quoted free-form description', () => {
+    expect(parseInvocation(['fix the readme typo'])).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'freeform', text: 'fix the readme typo' }],
+      loop: false,
+    });
+  });
+
+  it('defaults to claude for a multi-token free-form description', () => {
+    // `handoff fix the readme typo` — argv[0] isn't a tool, so the whole
+    // argv joins into the free-form description for the default tool.
+    expect(parseInvocation(['fix', 'the', 'readme', 'typo'])).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'freeform', text: 'fix the readme typo' }],
+      loop: false,
+    });
+  });
+
+  it('accepts --loop with the default tool', () => {
+    // The --loop rejection guard is "loop && tool !== 'claude'" — and the
+    // default tool IS claude, so --loop works in bare invocations.
+    expect(parseInvocation(['--loop', '#7'])).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'issue', number: 7 }],
+      loop: true,
+    });
+  });
+
+  it('a typo for a tool name parses as free-form (documented trade-off)', () => {
+    // `handoff calude #1` is unfortunately not detected as a typo for
+    // `claude` — it parses as free-form "calude #1" for the default tool.
+    // README documents quoting (`handoff "<task>"`) as the way to keep
+    // intent unambiguous. This test pins the trade-off so a future
+    // typo-guard PR has to update both the behavior and this test
+    // together.
+    expect(parseInvocation(['calude', '#1'])).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'freeform', text: 'calude #1' }],
+      loop: false,
+    });
   });
 
   it('rejects empty argv', () => {

@@ -3,10 +3,11 @@
 Delegate a GitHub issue (or a free-form task) to **`claude`**, **`codex`**, or **`copilot`** in an isolated git worktree, with a generated `PROMPT.md` as the starting context. The agent works to completion (commits, push, PR) in its own terminal window. When the PR merges, the worktree self-cleans.
 
 ```
-/handoff codex #1
+/handoff #1                       # claude (default) on issue #1
+/handoff codex #1                 # explicit tool
 /handoff copilot Issue #2
-/handoff claude #3 #4 #5          # fleet — three parallel worktrees
-/handoff claude "fix login redirect bug"
+/handoff #3 #4 #5                 # fleet — three parallel claude worktrees
+/handoff "fix login redirect bug" # free-form, default tool
 ```
 
 ## Why
@@ -54,39 +55,45 @@ Pass `--no-link` to skip the CLI link and install only the slash command. Re-run
 ### Single issue
 
 ```bash
-handoff claude #42
+handoff #42          # claude is the default tool
+handoff claude #42   # equivalent — explicit
+handoff codex #42    # different agent
 ```
 
 This:
 
 1. Resolves the GitHub issue title + body via `gh issue view 42`.
-2. Creates branch `claude/issue-42` off the repo's default branch.
+2. Creates branch `<tool>/issue-42` off the repo's default branch (e.g. `claude/issue-42`).
 3. Adds a worktree as a sibling directory: `<repo-parent>/<repo>-issue-42`.
 4. Writes `PROMPT.md` to the worktree with the issue, the branch, and a workflow contract.
-5. Spawns a new terminal window in that worktree and runs the chosen tool with the prompt — `claude "$(cat PROMPT.md)"` and `codex "$(cat PROMPT.md)"` for those two; `copilot -i "$(cat PROMPT.md)"` for copilot (its CLI parses bare positionals as subcommands, so the `-i` flag is required to seed an interactive session). The per-tool argv table lives in `scripts/handoff-runner.{sh,ps1}`.
+5. Spawns a new terminal window in that worktree and runs the chosen tool, instructing the agent to read `PROMPT.md` and follow it. (The agent reads the file via its own file tool rather than receiving the content via argv; see `src/prompt.ts` and issue #71 for why.) The per-tool argv table lives in `scripts/handoff-runner.{sh,ps1}`.
 
 The agent does the work, commits, pushes, opens a PR. When it exits, the wrapper checks `gh pr list --head <branch> --state merged` — if the PR has merged, the worktree and branch are removed.
 
 ### Fleet
 
 ```bash
-handoff claude #1 #2 #3
+handoff #1 #2 #3
 ```
 
-Three independent worktrees + three terminal windows, in parallel. Each opens its own PR.
+Three independent worktrees + three terminal windows, in parallel. Each opens its own PR. Add a tool prefix (`handoff codex #1 #2 #3`) to use a different agent.
 
 ### Free-form
 
 ```bash
+handoff "tighten error messages in the API client"
 handoff codex "tighten error messages in the API client"
 ```
 
-No issue lookup. The text is passed as the task description in `PROMPT.md`. The branch becomes `codex/<short-slug>` (slug capped at 20 chars).
+No issue lookup. The text is passed as the task description in `PROMPT.md`. The branch becomes `<tool>/<short-slug>` (slug capped at 20 chars).
+
+> **Quote free-form descriptions to avoid typo ambiguity.** Without quotes, an unquoted typo like `handoff calude #1` is treated as a free-form task ("calude #1") for the default tool instead of erroring on the unknown tool name. Quoting (`handoff "calude #1"`) makes the intent explicit; the bare-token form is convenient when you mean it.
 
 ### Loop mode (`--loop`, claude only)
 
 ```bash
-handoff claude --loop #7
+handoff --loop #7        # default tool is claude, so this is fine
+handoff claude --loop #7 # equivalent
 ```
 
 By default the agent stops the moment `gh pr create` returns. With `--loop`, the prompt instructs Claude Code to **stay resident** after the PR is open and self-drive the review cycle:
