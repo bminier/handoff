@@ -177,10 +177,13 @@ function safeReadState(path: string) {
 async function runDoctorCommand(invocation: DoctorArgs): Promise<number> {
   const report = await runDoctor({ tools: invocation.tools });
   if (invocation.json) {
-    // Stable, sorted-keys output so test snapshots and downstream
-    // consumers (CI gates, dashboards) don't churn on field-order
-    // changes. Two-space indent matches the rest of our JSON outputs
-    // (.handoff/state.json, ~/.handoff/config.json).
+    // Two-space indent matches the rest of our JSON outputs
+    // (.handoff/state.json, ~/.handoff/config.json). Field order is
+    // the construction order in src/doctor.ts (CheckResult), which is
+    // stable across releases — JSON.stringify preserves insertion order
+    // for plain objects, so consumers can rely on `name`/`severity`/
+    // `status`/`message`/`hint` always appearing in that sequence
+    // without us doing any explicit key sort.
     console.log(JSON.stringify(report, null, 2));
   } else {
     console.log(formatReport(report));

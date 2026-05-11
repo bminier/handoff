@@ -5,7 +5,13 @@ export type Severity = 'error' | 'warning';
 export type CheckStatus = 'pass' | 'fail';
 
 export interface CheckResult {
-  /** Stable machine identifier (kebab-case, used as `--json` key). */
+  /**
+   * Stable machine identifier (kebab-case). Surfaced verbatim in the
+   * `--json` output so consumers (CI gates, dashboards) can pin a
+   * specific check by name. The JSON shape is a flat array of these
+   * records under `results[]`, not a map keyed by name — duplicate
+   * names would be a bug, but the format is array-of-objects.
+   */
   name: string;
   /**
    * Whether a fail here is a hard error (bumps the process exit code)
@@ -158,6 +164,25 @@ async function checkGhOnPath(probe: DoctorProbe): Promise<CheckResult> {
 }
 
 async function checkGhAuth(probe: DoctorProbe): Promise<CheckResult> {
+  // Short-circuit if gh isn't on PATH — otherwise the `gh auth status`
+  // spawn fails with exitCode -1 and we'd report a misleading "gh is
+  // not authenticated" alongside the upstream `gh-on-path` error.
+  // Status stays 'fail' so the doctor surface flags the missing prereq,
+  // but the message tells the user the real cause and we skip the
+  // `gh auth login` hint (which presumes gh is installed). Severity
+  // stays 'error' for consistency with the rest of the gh checks; the
+  // total error count reflects two distinct fail lines (one per check),
+  // which is the intended granularity — fixing one doesn't fix the other.
+  const gh = await probe.which('gh');
+  if (!gh) {
+    return {
+      name: 'gh-auth',
+      severity: 'error',
+      status: 'fail',
+      message: 'cannot check gh auth — gh not on PATH',
+      hint: 'See the `gh-on-path` check above.',
+    };
+  }
   const result = await probe.invoke('gh', ['auth', 'status']);
   if (result.exitCode === 0) {
     return {
@@ -177,6 +202,20 @@ async function checkGhAuth(probe: DoctorProbe): Promise<CheckResult> {
 }
 
 async function checkInsideGitRepo(probe: DoctorProbe): Promise<CheckResult> {
+  // Same short-circuit pattern as gh-auth: if git isn't on PATH, the
+  // rev-parse spawn fails with exit -1 and "not inside a working tree"
+  // would be misleading. Surface the real cause and let the user fix
+  // the upstream `git-on-path` failure first.
+  const git = await probe.which('git');
+  if (!git) {
+    return {
+      name: 'inside-git-repo',
+      severity: 'error',
+      status: 'fail',
+      message: 'cannot check git working tree — git not on PATH',
+      hint: 'See the `git-on-path` check above.',
+    };
+  }
   const result = await probe.invoke('git', ['rev-parse', '--is-inside-work-tree']);
   if (result.exitCode === 0 && result.stdout.trim() === 'true') {
     return {
