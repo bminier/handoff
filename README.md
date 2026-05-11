@@ -87,7 +87,7 @@ handoff codex "tighten error messages in the API client"
 
 No issue lookup. The text is passed as the task description in `PROMPT.md`. The branch becomes `<tool>/<short-slug>` (slug capped at 20 chars).
 
-> **Quote free-form descriptions to avoid typo ambiguity.** Without quotes, an unquoted typo like `handoff calude #1` is treated as a free-form task ("calude #1") for the default tool instead of erroring on the unknown tool name. Quoting (`handoff "calude #1"`) makes the intent explicit; the bare-token form is convenient when you mean it.
+> **Quote free-form descriptions to avoid typo ambiguity.** A leading token that isn't a known tool name (`claude` / `codex` / `copilot`) or subcommand (`cleanup` / `telemetry`) parses as the start of a free-form description for the default tool. So an unquoted typo like `handoff calude #1` becomes the free-form task `"calude #1"` (for claude) instead of being caught. Quoting intentional free-form (`handoff "fix the bug"`) makes the intent unambiguous.
 
 ### Loop mode (`--loop`, claude only)
 
@@ -142,7 +142,7 @@ Both write to stderr so they don't pollute scriptable stdout. They can sit befor
 | Code | Meaning                                                                  |
 | ---- | ------------------------------------------------------------------------ |
 | `0`  | success                                                                  |
-| `1`  | user error — bad args, unknown tool, unauthenticated `gh`                |
+| `1`  | user error — bad args, missing reference, unauthenticated `gh`           |
 | `2`  | operational failure — worktree already exists, `git`/`gh` command failed |
 | `3`  | internal / unexpected error                                              |
 

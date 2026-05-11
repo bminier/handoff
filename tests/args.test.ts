@@ -205,7 +205,8 @@ describe('parseInvocation', () => {
   // #58: default-tool resolution — bare `handoff #N` / `handoff <free-form>`
   // dispatches to claude. The previous "Unknown tool" hard refusal is gone:
   // any non-tool, non-subcommand argv[0] is now the start of the refs
-  // region for DEFAULT_TOOL. See the docs/README for the typo trade-off.
+  // region for DEFAULT_TOOL. See README.md ("Free-form" section) for the
+  // typo trade-off and the recommended quoting habit.
   it('defaults to claude when the tool is omitted with a #N ref', () => {
     expect(parseInvocation(['#5'])).toEqual({
       tool: 'claude',

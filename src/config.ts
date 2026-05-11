@@ -63,7 +63,7 @@ EXAMPLES
 
 EXIT CODES
   0  success
-  1  user error (bad args, unknown tool, unauthenticated gh)
+  1  user error (bad args, missing reference, unauthenticated gh)
   2  operational failure (worktree exists, git/gh command failed)
   3  internal / unexpected error
 
