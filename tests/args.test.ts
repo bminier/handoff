@@ -96,6 +96,48 @@ describe('parseInvocation', () => {
     });
   });
 
+  // #72: `handoff <tool> --force ...` used to slugify "--force <rest>" into a
+  // branch name and dispatch an agent with an unparseable prompt. The catch
+  // is that --force is a real flag (cleanup-only); rejecting it in tool mode
+  // mirrors the --loop rejection above.
+  it("rejects --force in tool mode (it's cleanup-only)", () => {
+    for (const tool of ['claude', 'codex', 'copilot'] as const) {
+      expect(() => parseInvocation([tool, '--force', '#1'])).toThrow(
+        /'--force' is only valid for 'handoff cleanup'/,
+      );
+    }
+  });
+
+  it('rejects --force in tool mode even with no other args', () => {
+    // Without --force a bare tool invocation throws "Missing reference"; the
+    // explicit --force rejection should preempt that since the user's intent
+    // was clearly the cleanup subcommand.
+    expect(() => parseInvocation(['claude', '--force'])).toThrow(
+      /'--force' is only valid for 'handoff cleanup'/,
+    );
+  });
+
+  it('keeps --force literal once free-form text has started', () => {
+    // Free-form catch-all wins as soon as a non-flag/non-ref token appears,
+    // so a description like "fix the --force flag" is preserved verbatim.
+    const out = parseInvocation(['claude', 'fix', 'the', '--force', 'flag']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'freeform', text: 'fix the --force flag' }],
+      loop: false,
+    });
+  });
+
+  it('keeps a quoted --force literal in a free-form description', () => {
+    // Single quoted-string argv element — never matches the bare `--force` token.
+    const out = parseInvocation(['claude', 'fix the --force flag']);
+    expect(out).toEqual({
+      tool: 'claude',
+      refs: [{ kind: 'freeform', text: 'fix the --force flag' }],
+      loop: false,
+    });
+  });
+
   it('parses cleanup subcommand', () => {
     const out = parseInvocation(['cleanup', 'claude/issue-1']);
     expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: false });
