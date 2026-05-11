@@ -255,16 +255,24 @@ async function checkTerminal(probe: DoctorProbe): Promise<CheckResult> {
       hint: 'Install one of the supported terminals, or open the agent in your existing terminal manually.',
     };
   }
+  // On darwin, openTerminalOn dispatches to Terminal.app via osascript
+  // — `osascript` is the launcher we probe, but the user-facing
+  // terminal emulator is Terminal.app. On win32/linux the probed name
+  // IS the emulator, so we surface it directly.
+  const primary =
+    probe.platform === 'darwin' && found[0] === 'osascript'
+      ? 'Terminal.app via osascript'
+      : found[0];
   return {
     name: 'terminal',
     severity: 'warning',
     status: 'pass',
-    message: `terminal emulator: ${found[0]} (also available: ${found.slice(1).join(', ') || 'none'})`,
+    message: `terminal emulator: ${primary} (also available: ${found.slice(1).join(', ') || 'none'})`,
   };
 }
 
 /**
- * The inner shell each terminal launcher exec's to actually run the
+ * The inner shell each terminal launcher execs to actually run the
  * runner script. Mirror what `buildLaunchSpec` in src/terminal.ts uses:
  *   win32 → `powershell.exe -NoExit -File <runner.ps1>`
  *   darwin → `bash <runner.sh>` (via osascript)
