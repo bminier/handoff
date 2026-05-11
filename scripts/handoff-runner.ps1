@@ -18,7 +18,17 @@ if (-not (Test-Path 'PROMPT.md')) {
   exit 1
 }
 
-$prompt = Get-Content -Path 'PROMPT.md' -Raw
+# Fixed pointer prompt — never pass PROMPT.md content through argv
+# (issue #71). On Windows, npm-installed agent CLIs ship as .cmd
+# shims that do `node "...\app.js" %*`, and cmd.exe re-parses %* with
+# newlines as command separators and `& | < > ^` as metacharacters.
+# A malicious PROMPT.md could break out as a batch command. We sidestep
+# the entire class by keeping PROMPT.md content out of argv and letting
+# the agent read the file via its own file-read tool. SOURCE OF TRUTH:
+# `RUNNER_META_PROMPT` in src/prompt.ts — keep this literal in sync;
+# the runner integration tests import the TS constant and assert this
+# exact string reaches the tool's argv.
+$metaPrompt = 'Your initial task is in PROMPT.md in this directory. Read it and follow it. It contains your task description and the workflow contract you must follow.'
 
 # Per-tool invocation table. claude and codex both accept a positional
 # [PROMPT] for interactive seeded sessions. copilot does NOT — it parses
@@ -28,8 +38,8 @@ $prompt = Get-Content -Path 'PROMPT.md' -Raw
 # When you add a new tool, mirror the change in handoff-runner.sh and
 # the per-tool table in CLAUDE.md ("How to add a new adapter").
 switch ($Tool) {
-  { $_ -in 'claude', 'codex' } { & $Tool $prompt }
-  'copilot' { & $Tool -i $prompt }
+  { $_ -in 'claude', 'codex' } { & $Tool $metaPrompt }
+  'copilot' { & $Tool -i $metaPrompt }
   default {
     Write-Error "handoff-runner: unknown tool '$Tool'"
     exit 64

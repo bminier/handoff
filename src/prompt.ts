@@ -1,5 +1,27 @@
 import type { Tool } from './tools.ts';
 
+/**
+ * The fixed argv string the runner scripts pass to the agent CLI's
+ * interactive-seeded-prompt slot. The agent reads PROMPT.md (which is
+ * already in the worktree CWD) and proceeds from there.
+ *
+ * Why a fixed pointer instead of the file content (issue #71):
+ * npm-installed agent CLIs on Windows ship as `.cmd` shims that do
+ * `node "...\app.js" %*`, and cmd.exe re-parses %* — newlines split
+ * the command line and `& | < > ^` are batch metacharacters. Passing
+ * untrusted PROMPT.md content (issue body / free-form text) through
+ * that re-parse is an argv injection sink: a prompt containing
+ * `\n& echo OWNED >%TEMP%\handoff-owned` breaks out as a second batch
+ * command. None of claude/codex/copilot expose a file-input or
+ * stdin-in-interactive-mode flag, so we keep the prompt content out
+ * of argv entirely and route it through the agent's own file-read
+ * tool. This constant must match the hard-coded literal in both
+ * `scripts/handoff-runner.sh` and `scripts/handoff-runner.ps1`;
+ * the runner integration tests import it from here as the contract.
+ */
+export const RUNNER_META_PROMPT =
+  'Your initial task is in PROMPT.md in this directory. Read it and follow it. It contains your task description and the workflow contract you must follow.';
+
 export interface PromptContext {
   tool: Tool;
   repoName: string;
