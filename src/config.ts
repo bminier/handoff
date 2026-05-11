@@ -1,5 +1,5 @@
 /** Single source of truth for the package version, mirrored from package.json. */
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 export const HELP = `handoff v${VERSION}
 
