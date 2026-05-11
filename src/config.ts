@@ -1,13 +1,29 @@
+import { DEFAULT_TOOL } from './tools.ts';
+
 /** Single source of truth for the package version, mirrored from package.json. */
 export const VERSION = '0.3.0-dev';
+
+// Build the TOOLS section with a `(default when omitted)` marker on the
+// row that matches DEFAULT_TOOL. Centralizes the default so a future
+// change to DEFAULT_TOOL (or to its source in #20's config work) doesn't
+// require a parallel edit to HELP. Two-space gap before the marker
+// matches the existing column rhythm in this section.
+const TOOL_ROWS: Record<string, string> = {
+  claude: '  claude    Anthropic Claude Code CLI',
+  codex: '  codex     OpenAI Codex CLI',
+  copilot: '  copilot   GitHub Copilot CLI',
+};
+const TOOLS_SECTION = Object.entries(TOOL_ROWS)
+  .map(([tool, row]) => (tool === DEFAULT_TOOL ? `${row}  (default when omitted)` : row))
+  .join('\n');
 
 export const HELP = `handoff v${VERSION}
 
 USAGE
   handoff [<tool>] <ref...>        spawn a worktree per ref and launch <tool>
-                                   (<tool> defaults to claude when omitted)
-  handoff [claude] [--loop] <ref...>
-                                   claude (or default): stay resident through review (see FLAGS)
+                                   (<tool> defaults to ${DEFAULT_TOOL} when omitted)
+  handoff [${DEFAULT_TOOL}] [--loop] <ref...>
+                                   ${DEFAULT_TOOL} (or default): stay resident through review (see FLAGS)
   handoff cleanup [--force] <branch>
                                    remove a worktree if its PR has merged
                                    (--force skips the merge check; see FLAGS)
@@ -16,9 +32,7 @@ USAGE
   handoff --version                show version
 
 TOOLS
-  claude    Anthropic Claude Code CLI  (default when omitted)
-  codex     OpenAI Codex CLI
-  copilot   GitHub Copilot CLI
+${TOOLS_SECTION}
 
 REFS
   #N             a GitHub issue number (resolved via \`gh issue view\`)
@@ -54,10 +68,10 @@ TELEMETRY
                                                 populate it)
 
 EXAMPLES
-  handoff #1                                 # claude (default) on issue #1
+  handoff #1                                 # ${DEFAULT_TOOL} (default) on issue #1
   handoff codex #1                           # explicit tool
   handoff copilot Issue #2
-  handoff #1 #2 #3                           # fleet: 3 parallel claude worktrees
+  handoff #1 #2 #3                           # fleet: 3 parallel ${DEFAULT_TOOL} worktrees
   handoff --loop #7                          # implement and self-drive review
   handoff "tidy up the README"               # free-form, default tool
 
