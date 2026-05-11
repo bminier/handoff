@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { platform } from 'node:os';
 
+import { RUNNER_META_PROMPT } from '../src/prompt.ts';
 import {
   createRunnerHarness,
   findInterpreter,
@@ -213,16 +214,13 @@ describePwsh('handoff-runner.ps1', () => {
   // silently. Mirrors the bash matrix; runs against the .ps1 runner so
   // a divergence between the two scripts trips here.
   //
-  // Prompt body is intentionally single-line: the shim chain on Windows
-  // is `pwsh → .cmd → bun → fake-tool-impl.ts`, and `%*` in a .cmd file
-  // is reparsed by cmd.exe, where newlines act as command separators
-  // and truncate multi-line args. Production calls real `copilot.exe`,
-  // which parses its own Win32 command line and is unaffected. The
-  // contract we're pinning is per-tool argv shape (positional vs `-i`),
-  // not multi-line prompt preservation.
+  // Since #71, the prompt slot carries the fixed RUNNER_META_PROMPT
+  // pointer string (single-line, ASCII-safe) instead of PROMPT.md
+  // content. PROMPT.md content stays out of the .cmd shim's `%*`
+  // re-parse — that's the safety property this test pins.
   for (const tool of ['claude', 'codex', 'copilot'] as const) {
     it(
-      `${tool}: runner passes PROMPT.md content with the right argv shape`,
+      `${tool}: runner passes RUNNER_META_PROMPT with the right argv shape`,
       () => {
         const promptBody = `seed prompt for ${tool}`;
         harness = createRunnerHarness({
@@ -242,12 +240,57 @@ describePwsh('handoff-runner.ps1', () => {
         expect(calls.length).toBe(1);
         const argv = calls[0]!;
         if (tool === 'copilot') {
-          expect(argv).toEqual(['-i', promptBody]);
+          expect(argv).toEqual(['-i', RUNNER_META_PROMPT]);
         } else {
-          expect(argv).toEqual([promptBody]);
+          expect(argv).toEqual([RUNNER_META_PROMPT]);
+        }
+        // Belt-and-suspenders: PROMPT.md content didn't leak into argv.
+        for (const a of argv) {
+          expect(a).not.toContain('seed prompt for');
         }
       },
       TIMEOUT_MS,
     );
   }
+
+  // #71: argv-injection regression guard. On Windows, npm-installed
+  // agent CLIs ship as `.cmd` shims that do `node "...\app.js" %*`,
+  // and cmd.exe re-parses %* — newlines are command separators and
+  // `& | < > ^` are batch metacharacters. PROMPT.md content piped
+  // through that re-parse could break out (e.g. `\n& echo OWNED ...`).
+  // The fix routes the prompt content through the file system (agent
+  // reads PROMPT.md via its file-read tool) and puts a fixed pointer
+  // in argv. This test runs the exact attack payload through the PS
+  // runner and asserts the tool's argv contains only the meta-prompt.
+  it(
+    'malicious PROMPT.md content stays out of the tool argv (#71)',
+    () => {
+      const malicious =
+        'title line\r\n& echo OWNED >%TEMP%\\handoff-owned-pwsh-test\r\n' +
+        'plus | a < pipe > ^ caret\r\n';
+      harness = createRunnerHarness({
+        target: 'pwsh',
+        branch: 'claude/issue-71',
+        promptBody: malicious,
+      });
+
+      const result = runPwshRunner(harness, {
+        tool: 'claude',
+        toolExit: 0,
+        ghPrListResponse: [{ number: 71 }],
+      });
+      expectExit(result, 0, 'pwsh #71 argv');
+
+      const calls = readArgvLog(harness.argvLogPath);
+      expect(calls.length).toBe(1);
+      const argv = calls[0]!;
+      expect(argv).toEqual([RUNNER_META_PROMPT]);
+      for (const a of argv) {
+        expect(a).not.toContain('OWNED');
+        expect(a).not.toContain('handoff-owned-pwsh-test');
+        expect(a).not.toContain('caret');
+      }
+    },
+    TIMEOUT_MS,
+  );
 });

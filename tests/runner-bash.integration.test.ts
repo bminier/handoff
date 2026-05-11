@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 
+import { RUNNER_META_PROMPT } from '../src/prompt.ts';
 import {
   createRunnerHarness,
   findInterpreter,
@@ -236,9 +237,14 @@ describeBash('handoff-runner.sh', () => {
   // copilot needs `-i <prompt>` because a bare positional is parsed as
   // a subcommand and exits silently. The runner table is the source of
   // truth; these tests pin the contract.
+  //
+  // Since #71, the prompt slot carries the fixed RUNNER_META_PROMPT
+  // pointer instead of PROMPT.md content. The agent reads PROMPT.md
+  // via its own file-read tool in the worktree CWD. PROMPT.md content
+  // never reaches the tool's argv — which is what this test pins.
   for (const tool of ['claude', 'codex', 'copilot'] as const) {
     it(
-      `${tool}: runner passes PROMPT.md content with the right argv shape`,
+      `${tool}: runner passes RUNNER_META_PROMPT with the right argv shape`,
       () => {
         const promptBody = `# seed prompt for ${tool}\nDo the thing.\n`;
         harness = createRunnerHarness({
@@ -257,18 +263,60 @@ describeBash('handoff-runner.sh', () => {
         const calls = readArgvLog(harness.argvLogPath);
         expect(calls.length).toBe(1);
         const argv = calls[0]!;
-        // Trailing newlines are stripped: PROMPT="$(cat …)" drops
-        // them (POSIX-mandated for command substitution), so the tool
-        // sees the prompt without its final \n. Internal newlines are
-        // preserved verbatim.
-        const expected = promptBody.replace(/\n+$/, '');
         if (tool === 'copilot') {
-          expect(argv).toEqual(['-i', expected]);
+          expect(argv).toEqual(['-i', RUNNER_META_PROMPT]);
         } else {
-          expect(argv).toEqual([expected]);
+          expect(argv).toEqual([RUNNER_META_PROMPT]);
+        }
+        // Belt-and-suspenders: ensure PROMPT.md content didn't leak
+        // into argv via any path. If a future change re-introduces
+        // `$(cat PROMPT.md)`-style content passing, this catches it.
+        for (const a of argv) {
+          expect(a).not.toContain('seed prompt for');
+          expect(a).not.toContain('Do the thing');
         }
       },
       TIMEOUT_MS,
     );
   }
+
+  // #71: argv-injection regression guard. A PROMPT.md with cmd.exe
+  // metacharacters (& | < > ^ and newlines) used to break out as a
+  // batch command when piped through a `.cmd` shim's `%*` re-parse.
+  // The fix puts a fixed pointer string in argv and keeps PROMPT.md
+  // content out of the command line entirely. Even on bash (no
+  // re-parse hazard) we pin the same shape so a regression here
+  // is loud on every platform.
+  it(
+    'malicious PROMPT.md content stays out of the tool argv (#71)',
+    () => {
+      const malicious =
+        'title line\n& echo OWNED >/tmp/handoff-owned-bash-test\n' + 'plus | a < pipe > ^ caret\n';
+      harness = createRunnerHarness({
+        target: 'bash',
+        branch: 'claude/issue-71',
+        promptBody: malicious,
+      });
+
+      const result = runBashRunner(harness, {
+        tool: 'claude',
+        toolExit: 0,
+        ghPrListResponse: [{ number: 71 }],
+      });
+      expectExit(result, 0, 'bash #71 argv');
+
+      const calls = readArgvLog(harness.argvLogPath);
+      expect(calls.length).toBe(1);
+      const argv = calls[0]!;
+      expect(argv).toEqual([RUNNER_META_PROMPT]);
+      // Distinctive substrings of the attack payload must NOT appear
+      // anywhere in the argv the tool actually saw.
+      for (const a of argv) {
+        expect(a).not.toContain('OWNED');
+        expect(a).not.toContain('handoff-owned-bash-test');
+        expect(a).not.toContain('caret');
+      }
+    },
+    TIMEOUT_MS,
+  );
 });

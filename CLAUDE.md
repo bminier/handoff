@@ -68,11 +68,17 @@ When you add a new I/O module: pick a fixture from the matrix, follow the per-fi
 
 ### Per-tool invocation table
 
+The `<PROMPT>` slot is **not** PROMPT.md content — it's the fixed `RUNNER_META_PROMPT` string defined in `src/prompt.ts` (and mirrored as a literal in both runner scripts, with the integration tests asserting they agree). PROMPT.md content reaches the agent through its own file-read tool, not through argv; see "Why a fixed pointer" below.
+
 | Tool      | Argv shape            | Why                                                                                                                                                                                                                                                                                                                                           |
 | --------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `claude`  | `claude <PROMPT>`     | Accepts a positional `[prompt]` (interactive seeded session).                                                                                                                                                                                                                                                                                 |
 | `codex`   | `codex <PROMPT>`      | Same — `codex [OPTIONS] [PROMPT]`.                                                                                                                                                                                                                                                                                                            |
 | `copilot` | `copilot -i <PROMPT>` | A bare positional is parsed as a subcommand and exits silently (issue #57). `-i, --interactive <prompt>` "starts interactive mode and automatically executes this prompt" — same UX as the others. Avoid `-p/--prompt`: that's non-interactive and exits after completion, which would close the terminal before the user sees what happened. |
+
+### Why a fixed pointer instead of PROMPT.md content (issue #71)
+
+npm-installed agent CLIs on Windows ship as `.cmd` shims that do `node "...\app.js" %*`, and cmd.exe re-parses `%*` — newlines become command separators and `& | < > ^` are batch metacharacters. Passing untrusted PROMPT.md content (issue body / free-form description) through that re-parse is an argv-injection sink: a payload like `\n& echo OWNED >%TEMP%\handoff-owned` would break out as a second batch command. None of claude/codex/copilot expose a file-input or stdin-in-interactive-mode flag, so we keep PROMPT.md content out of argv entirely and let the agent read the file via its normal file-read tool (CWD is already the worktree root). Both runners use the same shape on POSIX too, even though POSIX shells don't have the same hazard — the consistency makes the contract simpler to reason about and one set of tests to maintain.
 
 ## The `.handoff/` workspace directory
 
