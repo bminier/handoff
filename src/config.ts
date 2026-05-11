@@ -4,8 +4,10 @@ export const VERSION = '0.3.0-dev';
 export const HELP = `handoff v${VERSION}
 
 USAGE
-  handoff <tool> <ref...>          spawn a worktree per ref and launch <tool>
-  handoff claude [--loop] <ref...> claude only: stay resident through review (see FLAGS)
+  handoff [<tool>] <ref...>        spawn a worktree per ref and launch <tool>
+                                   (<tool> defaults to claude when omitted)
+  handoff [claude] [--loop] <ref...>
+                                   claude (or default): stay resident through review (see FLAGS)
   handoff cleanup [--force] <branch>
                                    remove a worktree if its PR has merged
                                    (--force skips the merge check; see FLAGS)
@@ -14,7 +16,7 @@ USAGE
   handoff --version                show version
 
 TOOLS
-  claude    Anthropic Claude Code CLI
+  claude    Anthropic Claude Code CLI  (default when omitted)
   codex     OpenAI Codex CLI
   copilot   GitHub Copilot CLI
 
@@ -52,11 +54,12 @@ TELEMETRY
                                                 populate it)
 
 EXAMPLES
-  handoff codex #1
+  handoff #1                                 # claude (default) on issue #1
+  handoff codex #1                           # explicit tool
   handoff copilot Issue #2
-  handoff claude #1 #2 #3                    # fleet: 3 parallel worktrees
-  handoff claude --loop #7                   # implement and self-drive review
-  handoff claude "tidy up the README"
+  handoff #1 #2 #3                           # fleet: 3 parallel claude worktrees
+  handoff --loop #7                          # implement and self-drive review
+  handoff "tidy up the README"               # free-form, default tool
 
 EXIT CODES
   0  success
