@@ -6,9 +6,11 @@
 # lives) — NOT the user's project repo. The cwd of this script is the worktree
 # of the user's project; PROMPT.md sits there.
 #
-# Runs the chosen tool with PROMPT.md as the seed prompt, then on exit invokes
-# `bun <handoff-repo>/src/cli.ts cleanup <branch>` which removes the worktree
-# iff the PR has been merged.
+# Launches the chosen tool with a fixed RUNNER_META_PROMPT pointer string
+# (the agent reads PROMPT.md via its own file-read tool — see issue #71
+# and src/prompt.ts for why content never goes through argv). On exit
+# invokes `bun <handoff-repo>/src/cli.ts cleanup <branch>` which removes
+# the worktree iff the PR has been merged.
 
 set -uo pipefail
 

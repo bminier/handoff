@@ -60,7 +60,7 @@ When you add a new I/O module: pick a fixture from the matrix, follow the per-fi
 
 ## How to add a new adapter
 
-1. Add the tool string to `TOOLS` in `src/args.ts`.
+1. Add the tool string to `TOOLS` in `src/tools.ts` (the source of truth — `src/args.ts` and `src/branch.ts` both import it from there).
 2. Add the tool name to the per-tool invocation table in **both** `scripts/handoff-runner.sh` and `scripts/handoff-runner.ps1`, plus the `ValidateSet` in the latter. The runner scripts invoke the tool binary directly (currently the tool name == binary name) — but the argv shape differs per tool (see table below), so a new adapter must declare which shape it uses.
 3. Update `README.md` requirements list.
 4. Add a test for the new tool path in `tests/args.test.ts`.
