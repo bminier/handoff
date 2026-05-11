@@ -37,6 +37,7 @@ function happyProbe(): DoctorProbe {
       git: '/usr/bin/git',
       gh: '/usr/local/bin/gh',
       'gnome-terminal': '/usr/bin/gnome-terminal',
+      bash: '/bin/bash',
       claude: '/home/u/.local/bin/claude',
       codex: '/home/u/.local/bin/codex',
       copilot: '/home/u/.local/bin/copilot',
@@ -55,8 +56,8 @@ describe('runDoctor', () => {
     const report = await runDoctor({ tools: [] }, happyProbe());
     expect(report.errors).toBe(0);
     expect(report.warnings).toBe(0);
-    // 6 common + 3 tools = 9 checks total when tools=[] (all tools).
-    expect(report.passed).toBe(9);
+    // 7 common + 3 tools = 10 checks total when tools=[] (all tools).
+    expect(report.passed).toBe(10);
     expect(report.results.map((r) => r.name)).toEqual([
       'bun-on-path',
       'git-on-path',
@@ -64,6 +65,7 @@ describe('runDoctor', () => {
       'gh-auth',
       'inside-git-repo',
       'terminal',
+      'terminal-shell',
       'tool-claude',
       'tool-codex',
       'tool-copilot',
@@ -80,6 +82,7 @@ describe('runDoctor', () => {
           git: '/usr/bin/git',
           gh: '/usr/local/bin/gh',
           'gnome-terminal': '/usr/bin/gnome-terminal',
+          bash: '/bin/bash',
           claude: '/home/u/.local/bin/claude',
           // codex + copilot intentionally absent
         },
@@ -92,7 +95,7 @@ describe('runDoctor', () => {
     });
     const report = await runDoctor({ tools: ['claude'] }, probe);
     expect(report.errors).toBe(0);
-    expect(report.passed).toBe(7);
+    expect(report.passed).toBe(8);
     expect(report.results.map((r) => r.name).filter((n) => n.startsWith('tool-'))).toEqual([
       'tool-claude',
     ]);
@@ -216,6 +219,49 @@ describe('individual checks', () => {
     expect(term.message).toContain('xterm');
   });
 
+  it('terminal-shell: missing bash on linux → warning', async () => {
+    // Mirrors checkTerminal: the inner shell is what buildLaunchSpec
+    // actually exec's, so a missing bash on linux/darwin (or missing
+    // powershell.exe on win32) means the terminal opens but the runner
+    // script never starts. Warning severity (not error) keeps the
+    // existing "warnings don't fail the exit" contract intact.
+    const probe = fakeProbe({
+      paths: {
+        'gnome-terminal': '/usr/bin/gnome-terminal',
+        // bash intentionally absent
+      },
+      platform: 'linux',
+    });
+    const report = await runDoctor({ tools: [] }, probe);
+    const shell = report.results.find((r) => r.name === 'terminal-shell')!;
+    expect(shell.status).toBe('fail');
+    expect(shell.severity).toBe('warning');
+    expect(shell.message).toContain('bash');
+  });
+
+  it('terminal-shell: missing powershell.exe on win32 → warning', async () => {
+    const probe = fakeProbe({
+      paths: { wt: 'C:\\WINDOWS\\system32\\wt.exe' },
+      platform: 'win32',
+    });
+    const report = await runDoctor({ tools: [] }, probe);
+    const shell = report.results.find((r) => r.name === 'terminal-shell')!;
+    expect(shell.status).toBe('fail');
+    expect(shell.message).toContain('powershell.exe');
+    expect(shell.hint).toMatch(/WindowsApps PATH/);
+  });
+
+  it('terminal-shell: present → pass', async () => {
+    const probe = fakeProbe({
+      paths: { bash: '/bin/bash', 'gnome-terminal': '/usr/bin/gnome-terminal' },
+      platform: 'linux',
+    });
+    const report = await runDoctor({ tools: [] }, probe);
+    const shell = report.results.find((r) => r.name === 'terminal-shell')!;
+    expect(shell.status).toBe('pass');
+    expect(shell.message).toContain('bash at /bin/bash');
+  });
+
   it('tool missing → error with install URL hint', async () => {
     const probe = fakeProbe({});
     const report = await runDoctor({ tools: ['claude'] }, probe);
@@ -235,6 +281,7 @@ describe('exit code semantics', () => {
         bun: '/usr/local/bin/bun',
         git: '/usr/bin/git',
         gh: '/usr/local/bin/gh',
+        bash: '/bin/bash',
         claude: '/u/claude',
         codex: '/u/codex',
         copilot: '/u/copilot',
@@ -249,6 +296,9 @@ describe('exit code semantics', () => {
     });
     const report = await runDoctor({ tools: [] }, probe);
     expect(report.errors).toBe(0);
+    // Only the emulator check fails (warning); terminal-shell passes
+    // because bash is on PATH. Pinning this so any future merge of
+    // the two checks back into one trips here.
     expect(report.warnings).toBe(1);
   });
 });

@@ -263,6 +263,41 @@ async function checkTerminal(probe: DoctorProbe): Promise<CheckResult> {
   };
 }
 
+/**
+ * The inner shell each terminal launcher exec's to actually run the
+ * runner script. Mirror what `buildLaunchSpec` in src/terminal.ts uses:
+ *   win32 → `powershell.exe -NoExit -File <runner.ps1>`
+ *   darwin → `bash <runner.sh>` (via osascript)
+ *   linux → `bash <runner.sh>`
+ * If the inner shell is missing, the terminal window opens and immediately
+ * fails — the launch succeeds at the OS level but the runner never starts.
+ * Splitting this off from `terminal` (the launcher check) means each
+ * failure mode gets a distinct line in the report and consumers can
+ * pin them independently via the `name` field.
+ */
+async function checkTerminalShell(probe: DoctorProbe): Promise<CheckResult> {
+  const shell = probe.platform === 'win32' ? 'powershell.exe' : 'bash';
+  const path = await probe.which(shell);
+  if (!path) {
+    return {
+      name: 'terminal-shell',
+      severity: 'warning',
+      status: 'fail',
+      message: `terminal shell missing — \`${shell}\` not on PATH`,
+      hint:
+        probe.platform === 'win32'
+          ? 'PowerShell ships with Windows; if it is missing, the WindowsApps PATH entry is likely broken — restore it from System Properties → Environment Variables.'
+          : 'Install bash (the runner scripts target POSIX bash).',
+    };
+  }
+  return {
+    name: 'terminal-shell',
+    severity: 'warning',
+    status: 'pass',
+    message: `terminal shell: ${shell} at ${path}`,
+  };
+}
+
 function checkTool(tool: Tool): CheckFn {
   return async (probe) => {
     const path = await probe.which(tool);
@@ -298,6 +333,7 @@ const COMMON_CHECKS: readonly CheckFn[] = [
   checkGhAuth,
   checkInsideGitRepo,
   checkTerminal,
+  checkTerminalShell,
 ];
 
 export interface DoctorOptions {
