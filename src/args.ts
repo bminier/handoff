@@ -221,11 +221,17 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     // permissive — the gh-merged-PR check refuses non-handoff branches
     // implicitly.
     if (force && !isHandoffBranch(branch)) {
+      // POSIX single-quote the rejected name in the hint: this code path
+      // accepts arbitrary user input (the whole point is that isHandoffBranch
+      // refused it), so embedding it raw in a copy/pastable shell command
+      // would be a copy-paste injection hazard for branch names with shell
+      // metacharacters like `;`, `$()`, or backticks.
+      const quoted = `'${branch.replace(/'/g, `'\\''`)}'`;
       throw new ArgsError(
         `'handoff cleanup --force' refused: '${branch}' isn't a handoff branch ` +
           `(expected '<tool>/issue-<N>', '<tool>/pr-<N>', or '<tool>/<slug>' ` +
           `with <tool> in: ${TOOLS.join(', ')}). ` +
-          `If you really meant to delete this branch, use \`git branch -D -- ${branch}\` directly.`,
+          `If you really meant to delete this branch, use \`git branch -D -- ${quoted}\` directly.`,
       );
     }
     return { command: 'cleanup', branch, force };
