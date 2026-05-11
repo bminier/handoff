@@ -8,9 +8,11 @@ import {
   ArgsError,
   extractGlobalFlags,
   parseInvocation,
+  type DoctorArgs,
   type Ref,
   type TelemetryArgs,
 } from './args.ts';
+import { formatReport, runDoctor } from './doctor.ts';
 import type { Tool } from './tools.ts';
 import { HandoffError } from './errors.ts';
 import { setDebug, setVerbose, verbose } from './logger.ts';
@@ -94,6 +96,9 @@ async function main(rawArgv: readonly string[]): Promise<number> {
     if (invocation.command === 'telemetry') {
       return await runTelemetry(invocation);
     }
+    if (invocation.command === 'doctor') {
+      return await runDoctorCommand(invocation);
+    }
     showFirstRunBanner();
     return await runCleanup(invocation.branch, invocation.force);
   }
@@ -167,6 +172,24 @@ function safeReadState(path: string) {
   } catch {
     return null;
   }
+}
+
+async function runDoctorCommand(invocation: DoctorArgs): Promise<number> {
+  const report = await runDoctor({ tools: invocation.tools });
+  if (invocation.json) {
+    // Stable, sorted-keys output so test snapshots and downstream
+    // consumers (CI gates, dashboards) don't churn on field-order
+    // changes. Two-space indent matches the rest of our JSON outputs
+    // (.handoff/state.json, ~/.handoff/config.json).
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    console.log(formatReport(report));
+  }
+  // Warnings don't bump the exit code — only error-severity failures
+  // do, matching the issue #27 acceptance criteria. Exit 1 is the
+  // "user error" category (missing prereqs, unauthenticated gh), which
+  // is exactly what doctor surfaces.
+  return report.errors > 0 ? 1 : 0;
 }
 
 async function runTelemetry(invocation: TelemetryArgs): Promise<number> {

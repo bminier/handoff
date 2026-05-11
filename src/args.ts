@@ -40,7 +40,19 @@ export type TelemetryArgs =
   | { command: 'telemetry'; sub: 'status' }
   | { command: 'telemetry'; sub: 'log' };
 
-export type CliInvocation = ParsedArgs | CleanupArgs | TelemetryArgs;
+export interface DoctorArgs {
+  command: 'doctor';
+  /**
+   * Tools to include in the per-tool PATH check. Empty list means "all
+   * known tools" — `handoff doctor` alone checks everything; `handoff
+   * doctor claude` narrows the tool check to just claude.
+   */
+  tools: Tool[];
+  /** Emit a machine-readable JSON report to stdout instead of plain text. */
+  json: boolean;
+}
+
+export type CliInvocation = ParsedArgs | CleanupArgs | TelemetryArgs | DoctorArgs;
 
 import { HandoffError } from './errors.ts';
 import { isHandoffBranch } from './branch.ts';
@@ -124,12 +136,12 @@ export function extractGlobalFlags(argv: readonly string[]): { verbose: boolean;
   // subcommand. With the default-tool support (issue #58), a leading
   // ref like `#7` or a free-form word IS the first ref; the ref-scan
   // loop below must see it.
-  const isSubcommand = head === 'cleanup' || head === 'telemetry';
+  const isSubcommand = head === 'cleanup' || head === 'telemetry' || head === 'doctor';
   if (isTool(head) || isSubcommand) {
     i++;
   }
 
-  // No free-form mode under cleanup / telemetry — scan the whole tail.
+  // No free-form mode under cleanup / telemetry / doctor — scan the whole tail.
   if (isSubcommand) {
     while (i < argv.length) {
       const tok = argv[i]!;
@@ -249,6 +261,36 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     // Same reasoning as cleanup: telemetry has no free-form mode, so global
     // flags can be filtered out anywhere in the subcommand args.
     return parseTelemetry(stripGlobalFlags(trimmed.slice(1)));
+  }
+
+  if (head === 'doctor') {
+    // Same scanning model as cleanup/telemetry: no free-form mode, so global
+    // flags + the doctor-specific `--json` flag can appear anywhere in the
+    // tail. Positionals are zero or more tool names (`claude` / `codex` /
+    // `copilot`); the bare invocation checks all known tools.
+    const tail = stripGlobalFlags(trimmed.slice(1));
+    let json = false;
+    const tools: Tool[] = [];
+    const seen = new Set<Tool>();
+    for (const tok of tail) {
+      if (tok === '--json') {
+        json = true;
+        continue;
+      }
+      if (isTool(tok)) {
+        // De-dup so `handoff doctor claude claude` runs the check once.
+        if (!seen.has(tok)) {
+          seen.add(tok);
+          tools.push(tok);
+        }
+        continue;
+      }
+      throw new ArgsError(
+        `Unknown argument '${tok}' to 'handoff doctor'. ` +
+          `Expected zero or more of: ${TOOLS.join(', ')} (optionally '--json').`,
+      );
+    }
+    return { command: 'doctor', tools, json };
   }
 
   // Default-tool resolution (#58): if argv[0] isn't a known tool name,

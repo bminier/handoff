@@ -29,6 +29,9 @@ USAGE
   handoff cleanup [--force] <branch>
                                    remove a worktree if its PR has merged
                                    (--force skips the merge check; see FLAGS)
+  handoff doctor [<tool>...] [--json]
+                                   preflight environment check; with no
+                                   <tool>, checks all known agents
   handoff telemetry <subcommand>   manage opt-in usage telemetry (see TELEMETRY)
   handoff --help                   show this message
   handoff --version                show version

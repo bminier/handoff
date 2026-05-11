@@ -143,6 +143,74 @@ describe('parseInvocation', () => {
     expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: false });
   });
 
+  // #27: doctor subcommand
+  it('parses bare `doctor` as all-tools, plain-text', () => {
+    expect(parseInvocation(['doctor'])).toEqual({
+      command: 'doctor',
+      tools: [],
+      json: false,
+    });
+  });
+
+  it('parses `doctor <tool>` as single-tool filter', () => {
+    expect(parseInvocation(['doctor', 'claude'])).toEqual({
+      command: 'doctor',
+      tools: ['claude'],
+      json: false,
+    });
+  });
+
+  it('parses multi-tool doctor invocations', () => {
+    expect(parseInvocation(['doctor', 'claude', 'codex'])).toEqual({
+      command: 'doctor',
+      tools: ['claude', 'codex'],
+      json: false,
+    });
+  });
+
+  it('parses `doctor --json` (flag before tools)', () => {
+    expect(parseInvocation(['doctor', '--json'])).toEqual({
+      command: 'doctor',
+      tools: [],
+      json: true,
+    });
+  });
+
+  it('parses `doctor <tool> --json` (flag after tools)', () => {
+    // Same position-independence as cleanup's --force; doctor has no
+    // free-form mode so --json can sit anywhere in the tail.
+    expect(parseInvocation(['doctor', 'claude', '--json'])).toEqual({
+      command: 'doctor',
+      tools: ['claude'],
+      json: true,
+    });
+  });
+
+  it('deduplicates repeated tool args under doctor', () => {
+    // `handoff doctor claude claude` would otherwise run the per-tool
+    // check twice and double-count any failure. De-dup at parse time.
+    expect(parseInvocation(['doctor', 'claude', 'claude'])).toEqual({
+      command: 'doctor',
+      tools: ['claude'],
+      json: false,
+    });
+  });
+
+  it('rejects unknown positional args to doctor', () => {
+    expect(() => parseInvocation(['doctor', 'bard'])).toThrow(
+      /Unknown argument 'bard' to 'handoff doctor'/,
+    );
+  });
+
+  it('strips --verbose anywhere in doctor args', () => {
+    // Global flags can interleave with doctor args (cleanup pattern).
+    expect(parseInvocation(['doctor', '--verbose', 'claude', '--json'])).toEqual({
+      command: 'doctor',
+      tools: ['claude'],
+      json: true,
+    });
+  });
+
   it('parses cleanup --force <branch>', () => {
     const out = parseInvocation(['cleanup', '--force', 'claude/issue-1']);
     expect(out).toEqual({ command: 'cleanup', branch: 'claude/issue-1', force: true });

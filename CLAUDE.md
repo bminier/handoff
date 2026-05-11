@@ -17,6 +17,7 @@
 | `src/git.ts`                 | `git` wrappers: worktree create/remove, branch ops                        | I/O   |
 | `src/terminal.ts`            | Platform-aware terminal spawn (`buildLaunchSpec` is pure)                 | mixed |
 | `src/cleanup.ts`             | PR-merged check → remove worktree + branch                                | I/O   |
+| `src/doctor.ts`              | Preflight environment checks (bun/git/gh/auth/terminal/tools)             | mixed |
 | `src/run.ts`                 | `spawn` wrapper with structured errors                                    | I/O   |
 | `src/workspace.ts`           | `.handoff/state.json` read/write + schema-version guard                   | I/O   |
 | `src/telemetry.ts`           | `~/.handoff/config.json`, event constructors, fire-and-forget emit        | mixed |
@@ -65,6 +66,7 @@ When you add a new I/O module: pick a fixture from the matrix, follow the per-fi
 3. Update `README.md` requirements list.
 4. Add a test for the new tool path in `tests/args.test.ts`.
 5. Add a per-tool argv-shape case to `tests/runner-bash.integration.test.ts` and `tests/runner-ps1.integration.test.ts` so the contract is pinned end-to-end.
+6. Add a per-tool install hint to `HINTS` in `src/doctor.ts` so `handoff doctor` can point users at where to install the new agent.
 
 ### Per-tool invocation table
 
