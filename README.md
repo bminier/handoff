@@ -50,6 +50,16 @@ Pass `--no-link` to skip the CLI link and install only the slash command. Re-run
 
 > **Restart Claude Code after installing.** Slash commands under `~/.claude/commands/` are read at session start, so any sessions that were already open won't see `/handoff` until they're restarted.
 
+### Verify the install
+
+```bash
+handoff doctor          # checks bun, git, gh, gh auth, terminal, all agents
+handoff doctor claude   # narrow the per-tool check to one agent
+handoff doctor --json   # machine-readable
+```
+
+Exit code is `0` when every error-severity check passes (warnings are informational and don't fail the run). Run this first thing after install to surface missing prereqs before they ambush a real handoff.
+
 ## Usage
 
 ### Single issue
