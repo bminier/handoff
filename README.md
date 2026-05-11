@@ -53,7 +53,7 @@ Pass `--no-link` to skip the CLI link and install only the slash command. Re-run
 ### Verify the install
 
 ```bash
-handoff doctor          # checks bun, git, gh, gh auth, terminal, all agents
+handoff doctor          # checks bun, git, gh, gh auth, git working tree, terminal, all agents
 handoff doctor claude   # narrow the per-tool check to one agent
 handoff doctor --json   # machine-readable
 ```
