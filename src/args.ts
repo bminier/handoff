@@ -272,6 +272,18 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
       i += 1;
       continue;
     }
+    // `--force` is a cleanup-only flag. Without this explicit rejection it
+    // would fall through to the free-form catch-all below, so a typo like
+    // `handoff claude --force #57` (intending `handoff cleanup --force
+    // claude/issue-57`) silently slugifies "--force #57" into a branch
+    // name and dispatches an agent with an unparseable prompt. Mirrors the
+    // --loop rejection pattern for non-claude tools.
+    if (tok === '--force') {
+      throw new ArgsError(
+        `'--force' is only valid for 'handoff cleanup'. ` +
+          `Did you mean 'handoff cleanup --force <branch>'?`,
+      );
+    }
     // Global flags consumed silently in scanning mode; main() reads them via
     // extractGlobalFlags() before this function is called.
     if (isGlobalFlag(tok!)) {
