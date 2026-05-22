@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import { GhError, defaultBranch, fetchIssue, prMergedFor } from '../src/github.ts';
+import {
+  GhError,
+  checkoutPullRequest,
+  defaultBranch,
+  fetchIssue,
+  fetchPullRequest,
+  prMergedFor,
+} from '../src/github.ts';
 import type { HandoffError } from '../src/errors.ts';
 import { createScriptedSpawn, type ScriptedSpawn } from './helpers/scriptedSpawn.ts';
 
@@ -128,6 +135,125 @@ describe('fetchIssue', () => {
     });
     const issue = await fetchIssue(7);
     expect(issue.labels).toEqual([]);
+  });
+});
+
+describe('fetchPullRequest', () => {
+  const PR_FIELDS = 'number,title,body,url,state,headRefName,baseRefName,isDraft,isCrossRepository';
+  const ARGV = ['pr', 'view', '5', '--json', PR_FIELDS];
+
+  function payload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      number: 5,
+      title: 'Add the thing',
+      body: 'half-finished body',
+      url: 'https://example.test/pull/5',
+      state: 'OPEN',
+      headRefName: 'feature/the-thing',
+      baseRefName: 'dev',
+      isDraft: false,
+      isCrossRepository: false,
+      ...overrides,
+    };
+  }
+
+  it('parses a complete PR payload', async () => {
+    spawn.expectGh(ARGV, payload());
+
+    const pr = await fetchPullRequest(5);
+
+    expect(pr).toEqual({
+      number: 5,
+      title: 'Add the thing',
+      body: 'half-finished body',
+      url: 'https://example.test/pull/5',
+      state: 'OPEN',
+      headRefName: 'feature/the-thing',
+      baseRefName: 'dev',
+      isDraft: false,
+      isCrossRepository: false,
+    });
+  });
+
+  it('carries the draft and cross-repository flags through verbatim', async () => {
+    // cli.ts gates fork refusal on isCrossRepository and allows drafts, so
+    // both flags must survive the parse unchanged.
+    spawn.expectGh(ARGV, payload({ isDraft: true, isCrossRepository: true }));
+    const pr = await fetchPullRequest(5);
+    expect(pr.isDraft).toBe(true);
+    expect(pr.isCrossRepository).toBe(true);
+  });
+
+  it('throws GhError when gh exits non-zero (e.g. PR not found)', async () => {
+    spawn.expect({
+      command: 'gh',
+      argv: ARGV,
+      response: { stderr: 'GraphQL: Could not resolve to a PullRequest (HTTP 404)', exitCode: 1 },
+    });
+
+    let err: unknown;
+    try {
+      await fetchPullRequest(5);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(GhError);
+    expect((err as Error).message).toContain('gh pr view 5');
+  });
+
+  it('throws GhError when the payload is missing required fields', async () => {
+    // Same defensive-parse contract as fetchIssue: a valid-JSON but
+    // incomplete payload must fail loudly, not propagate undefined fields
+    // into worktree creation.
+    spawn.expectGh(ARGV, { number: 5, title: 'no refs' });
+
+    let err: unknown;
+    try {
+      await fetchPullRequest(5);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(GhError);
+    expect((err as Error).message).toContain('Unexpected gh pr payload');
+  });
+
+  it('rejects an unrecognized PR state', async () => {
+    // state drives the open/closed/merged gate in cli.ts; an unknown value
+    // must not slip through as a valid PullRequestState.
+    spawn.expectGh(ARGV, payload({ state: 'LOCKED' }));
+    await expect(fetchPullRequest(5)).rejects.toBeInstanceOf(GhError);
+  });
+
+  it('rejects an empty headRefName', async () => {
+    // An empty head branch would later concatenate into a worktree path.
+    spawn.expectGh(ARGV, payload({ headRefName: '' }));
+    await expect(fetchPullRequest(5)).rejects.toBeInstanceOf(GhError);
+  });
+});
+
+describe('checkoutPullRequest', () => {
+  it('runs `gh pr checkout <n>` in the given worktree cwd', async () => {
+    spawn.expect({
+      command: 'gh',
+      argv: ['pr', 'checkout', '5'],
+      response: { stdout: '' },
+    });
+
+    await checkoutPullRequest(5, '/work/handoff-the-thing');
+
+    expect(spawn.calls).toEqual([
+      { command: 'gh', args: ['pr', 'checkout', '5'], cwd: '/work/handoff-the-thing' },
+    ]);
+  });
+
+  it('surfaces a GhError when the checkout fails', async () => {
+    spawn.expect({
+      command: 'gh',
+      argv: ['pr', 'checkout', '5'],
+      response: { stderr: 'fatal: could not checkout', exitCode: 1 },
+    });
+
+    await expect(checkoutPullRequest(5, '/work/x')).rejects.toBeInstanceOf(GhError);
   });
 });
 
