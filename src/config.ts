@@ -42,12 +42,16 @@ ${TOOLS_SECTION}
 REFS
   #N             a GitHub issue number (resolved via \`gh issue view\`)
   Issue #N       same as #N
+  PR #N          an existing pull request to complete in place (resolved via
+                 \`gh pr view\`); \`pr#N\` is accepted as shorthand. The agent
+                 works on the PR's own head branch and does not open a new PR.
   <free text>    a free-form task description (no issue created)
 
 FLAGS
-  --loop         (claude only) keep the agent resident after \`gh pr create\`
-                 to triage review feedback and CI, push fixes, and iterate
-                 until the PR is merged (or a bail condition trips).
+  --loop         (claude only) keep the agent resident through the review
+                 cycle — triage feedback and CI, push fixes, and iterate
+                 until the PR is merged (or a bail condition trips). Works
+                 with an issue, a free-form task, or a \`PR #N\` ref.
   --force        (cleanup only) skip the merged-PR safety check and tear
                  down the worktree + branch unconditionally. Use when the
                  work shipped under a different branch (rebased, renamed,
@@ -78,6 +82,7 @@ EXAMPLES
   handoff copilot Issue #2
   handoff #1 #2 #3                           # fleet: 3 parallel ${DEFAULT_TOOL} worktrees
   handoff --loop #7                          # implement and self-drive review
+  handoff PR #5                              # complete an existing PR in place
   handoff "tidy up the README"               # free-form, default tool
 
 EXIT CODES

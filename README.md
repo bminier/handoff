@@ -1,12 +1,13 @@
 # handoff
 
-Delegate a GitHub issue (or a free-form task) to **`claude`**, **`codex`**, or **`copilot`** in an isolated git worktree, with a generated `PROMPT.md` as the starting context. The agent works to completion (commits, push, PR) in its own terminal window. When the PR merges, the worktree self-cleans.
+Delegate a GitHub issue, an existing PR, or a free-form task to **`claude`**, **`codex`**, or **`copilot`** in an isolated git worktree, with a generated `PROMPT.md` as the starting context. The agent works to completion (commits, push, PR) in its own terminal window. When the PR merges, the worktree self-cleans.
 
 ```
 /handoff #1                       # claude (default) on issue #1
 /handoff codex #1                 # explicit tool
 /handoff copilot Issue #2
 /handoff #3 #4 #5                 # fleet — three parallel claude worktrees
+/handoff PR #5                    # complete an existing PR in place
 /handoff "fix login redirect bug" # free-form, default tool
 ```
 
@@ -99,6 +100,24 @@ No issue lookup. The text is passed as the task description in `PROMPT.md`. The 
 
 > **Quote free-form descriptions to avoid typo ambiguity.** A leading token that isn't a known tool name (`claude` / `codex` / `copilot`) or subcommand (`cleanup` / `telemetry`) parses as the start of a free-form description for the default tool. So an unquoted typo like `handoff calude #1` becomes the free-form task `"calude #1"` (for claude) instead of being caught. Quoting intentional free-form (`handoff "fix the bug"`) makes the intent unambiguous.
 
+### PR handoff
+
+```bash
+handoff PR #5          # complete an existing PR (any tool)
+handoff codex PR #5    # explicit tool
+handoff pr#5           # shorthand — pr#N, case-insensitive
+```
+
+Hand off an **existing pull request** for an agent to **finish** — not to review-loop on, and not to replace. Instead of branching off the default branch, `handoff`:
+
+1. Resolves the PR via `gh pr view 5` (title, body, head/base branch, state).
+2. Creates a detached worktree and runs `gh pr checkout 5` into it, so the worktree sits on the PR's **own head branch** with push tracking already wired.
+3. Writes a PR-flavored `PROMPT.md`: review the existing diff and conversation, finish the work, push to the **same branch**. The agent does **not** open a new PR.
+
+On cleanup the worktree is removed but the PR's head branch is **kept** — it belongs to the PR, not to `handoff`.
+
+Scope limits: the PR must be **open** (a closed or merged PR is refused), and its head branch must live in **this repo** — PRs from a fork are refused with a clear error, since the agent may not be able to push to a fork. `--loop` works with a `PR #N` ref (claude only): the agent completes the PR and then stays resident through the review cycle.
+
 ### Loop mode (`--loop`, claude only)
 
 ```bash
@@ -113,6 +132,8 @@ By default the agent stops the moment `gh pr create` returns. With `--loop`, the
 - Triage review comments. **Bot reviewers (Copilot, Codex, github-actions) are default-deny** — the agent reads each comment, decides if there's a real underlying problem, and fixes at the source rather than blindly applying suggested patches.
 - Commit and push fixes per round.
 - Bail with a `[handoff loop] bailing` PR comment if it hits 5 rounds, an unresolvable CI failure, or a merge conflict.
+
+With an issue or free-form ref the loop begins once `gh pr create` returns. With a [`PR #N`](#pr-handoff) ref the PR already exists, so the agent finishes the work, pushes to the PR's branch, and goes straight into the cycle — it never runs `gh pr create`.
 
 The agent does **not** merge — that's still your call. Once you (or repo automation) merge, it exits and the wrapper cleans up the worktree as usual.
 
@@ -217,7 +238,7 @@ What we collect (and only this — by construction):
 | `handoff.cleanup` | `{ tool, outcome, durationMs }`             |
 | `handoff.error`   | `{ code, module, exitCode }`                |
 
-`refType` is `issue` or `freeform`; `outcome` is `merged` / `forced` / `retained` / `failed` (`forced` is when the user passed `handoff cleanup --force` — distinguished so analytics can track how often the merge-check safety is bypassed); `sessionId` is a per-handoff random UUID. There is **no PII**: no issue titles, branch names, repo paths, or usernames are ever transmitted. Event delivery is async fire-and-forget: the CLI never awaits a send at the call site, so a slow or down endpoint doesn't gate user-visible work. The process does wait briefly on exit for any in-flight requests to drain, bounded by a 1s `AbortController` timeout per request. Failures (transport errors, non-2xx, timeout) are dropped silently.
+`refType` is `issue`, `freeform`, or `pr`; `outcome` is `merged` / `forced` / `retained` / `failed` (`forced` is when the user passed `handoff cleanup --force` — distinguished so analytics can track how often the merge-check safety is bypassed); `sessionId` is a per-handoff random UUID. There is **no PII**: no issue titles, branch names, repo paths, or usernames are ever transmitted. Event delivery is async fire-and-forget: the CLI never awaits a send at the call site, so a slow or down endpoint doesn't gate user-visible work. The process does wait briefly on exit for any in-flight requests to drain, bounded by a 1s `AbortController` timeout per request. Failures (transport errors, non-2xx, timeout) are dropped silently.
 
 Trust through transparency: set `HANDOFF_TELEMETRY_DEBUG=1` in your environment to capture every event you would have sent to `~/.handoff/telemetry-debug.log`. The log is written **whether or not telemetry is enabled**, so you can audit what the tool would send before turning it on. `handoff telemetry log` prints the file.
 
