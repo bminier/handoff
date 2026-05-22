@@ -53,6 +53,14 @@ export interface CleanupOpts {
    */
   force?: boolean;
   /**
+   * Remove the worktree but leave the branch in place. Set for PR-as-ref
+   * handoffs (#60): the worktree was checked out onto the PR's *own* head
+   * branch, which isn't ours to delete — the PR still owns it. cli.ts
+   * derives this from `.handoff/state.json` (`ref.type === 'pr'`). Defaults
+   * to `false` so issue / free-form handoffs still delete their branch.
+   */
+  keepBranch?: boolean;
+  /**
    * @internal Test-only injection seam. Production callers should rely on the
    * default deps wired to `git.ts` / `github.ts` / `node:fs`. All-or-nothing
    * by design: a partial set used to silently fall back to the real impls,
@@ -65,6 +73,7 @@ export async function cleanup(branch: string, opts: CleanupOpts): Promise<Cleanu
   const deps: CleanupDeps = opts.deps ?? buildDefaultDeps(opts.repoRoot);
   const path = worktreePath({ repoRoot: opts.repoRoot, branch });
   const force = opts.force ?? false;
+  const keepBranch = opts.keepBranch ?? false;
 
   if (!force) {
     let merged: boolean;
@@ -109,28 +118,33 @@ export async function cleanup(branch: string, opts: CleanupOpts): Promise<Cleanu
     }
   }
 
-  let removedBranch = false;
-  if (await deps.branchExists(branch)) {
-    try {
-      await deps.deleteBranch(branch);
-      removedBranch = true;
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      return {
-        status: 'unknown',
-        message:
-          `${worktreeExisted ? `Removed worktree ${path}, but ` : ''}` +
-          `failed to delete branch ${branch}: ${reason}. ` +
-          `Delete it manually with \`git branch -D ${branch}\`.`,
-      };
-    }
-  }
-
   const parts: string[] = [];
   if (worktreeExisted) parts.push(`Removed worktree ${path}`);
   else parts.push(`Worktree ${path} was not present`);
-  if (removedBranch) parts.push(`deleted branch ${branch}`);
-  else parts.push(`branch ${branch} was already gone`);
+
+  if (keepBranch) {
+    // PR-as-ref handoff (#60): the worktree was checked out onto the PR's
+    // own head branch. Drop the worktree, but the branch belongs to the PR.
+    parts.push(`retained branch ${branch} (PR head branch)`);
+  } else {
+    let removedBranch = false;
+    if (await deps.branchExists(branch)) {
+      try {
+        await deps.deleteBranch(branch);
+        removedBranch = true;
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return {
+          status: 'unknown',
+          message:
+            `${worktreeExisted ? `Removed worktree ${path}, but ` : ''}` +
+            `failed to delete branch ${branch}: ${reason}. ` +
+            `Delete it manually with \`git branch -D ${branch}\`.`,
+        };
+      }
+    }
+    parts.push(removedBranch ? `deleted branch ${branch}` : `branch ${branch} was already gone`);
+  }
 
   const reason = force ? 'forced — merge check skipped' : 'PR merged';
   return {
