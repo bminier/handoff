@@ -224,7 +224,7 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     // --force opts out of the merge-check safety property. Substitute a
     // name-shape check so a typo'd or non-handoff branch can't trigger
     // an unconditional `git branch -D`. Legitimate handoff branches
-    // always match `<tool>/issue-<N>`, `<tool>/pr-<N>`, or `<tool>/<slug>`
+    // always match `<tool>/issue-<N>` or `<tool>/<slug>`
     // (the shapes branchName() emits). Non-force cleanup remains
     // permissive — the gh-merged-PR check refuses non-handoff branches
     // implicitly.
@@ -237,7 +237,7 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
       const quoted = `'${branch.replace(/'/g, `'\\''`)}'`;
       throw new ArgsError(
         `'handoff cleanup --force' refused: '${branch}' isn't a handoff branch ` +
-          `(expected '<tool>/issue-<N>', '<tool>/pr-<N>', or '<tool>/<slug>' ` +
+          `(expected '<tool>/issue-<N>' or '<tool>/<slug>' ` +
           `with <tool> in: ${TOOLS.join(', ')}). ` +
           `If you really meant to delete this branch, use \`git branch -D -- ${quoted}\` directly.`,
       );

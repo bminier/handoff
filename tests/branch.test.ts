@@ -7,15 +7,11 @@ describe('branchName', () => {
     expect(branchName({ tool: 'claude', issueNumber: 7 })).toBe('claude/issue-7');
   });
 
-  it('builds a PR branch as <tool>/pr-<N>', () => {
-    expect(branchName({ tool: 'codex', prNumber: 12 })).toBe('codex/pr-12');
-  });
-
   it('builds a free-form branch as <tool>/<slug>', () => {
     expect(branchName({ tool: 'codex', slug: 'cleanup-readme' })).toBe('codex/cleanup-readme');
   });
 
-  it('throws when given neither issueNumber nor prNumber nor slug', () => {
+  it('throws when given neither issueNumber nor slug', () => {
     expect(() => branchName({ tool: 'claude' })).toThrow();
   });
 });
@@ -23,8 +19,15 @@ describe('branchName', () => {
 describe('branchTail', () => {
   it('extracts everything after the first slash', () => {
     expect(branchTail('claude/issue-7')).toBe('issue-7');
-    expect(branchTail('codex/pr-12')).toBe('pr-12');
     expect(branchTail('claude/cleanup-readme')).toBe('cleanup-readme');
+  });
+
+  it('extracts only past the first slash for multi-segment branches', () => {
+    // PR-as-ref handoffs check out the PR's own head branch, which often
+    // carries a slash (e.g. `feature/x`). branchTail keeps everything past
+    // the first slash so worktreePath() can flatten it.
+    expect(branchTail('feature/login-fix')).toBe('login-fix');
+    expect(branchTail('user/feature/x')).toBe('feature/x');
   });
 
   it('returns the input unchanged when there is no slash', () => {
@@ -42,12 +45,6 @@ describe('isHandoffBranch', () => {
     for (const tool of ['claude', 'codex', 'copilot'] as const) {
       expect(isHandoffBranch(branchName({ tool, issueNumber: 1 }))).toBe(true);
       expect(isHandoffBranch(branchName({ tool, issueNumber: 9999 }))).toBe(true);
-    }
-  });
-
-  it('accepts every pr-form branch from branchName()', () => {
-    for (const tool of ['claude', 'codex', 'copilot'] as const) {
-      expect(isHandoffBranch(branchName({ tool, prNumber: 42 }))).toBe(true);
     }
   });
 
@@ -114,11 +111,13 @@ describe('worktreePath', () => {
     expect(out.replace(/\\/g, '/')).toBe('/work/handoff-issue-7');
   });
 
-  it('handles PR branches', () => {
+  it('handles a PR head branch the worktree was checked out onto', () => {
+    // PR-as-ref handoffs use the PR's own head branch; branchTail flattens
+    // any slash so the sibling directory name stays path-safe.
     const out = worktreePath({
       repoRoot: '/work/scope',
-      branch: 'codex/pr-12',
+      branch: 'feature/login-fix',
     });
-    expect(out.replace(/\\/g, '/')).toBe('/work/scope-pr-12');
+    expect(out.replace(/\\/g, '/')).toBe('/work/scope-login-fix');
   });
 });
