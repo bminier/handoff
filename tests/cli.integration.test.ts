@@ -31,6 +31,8 @@ let restoreTerminal: (() => void) | undefined;
 
 const REPO_VIEW_ARGV = ['repo', 'view', '--json', 'defaultBranchRef'];
 const ISSUE_VIEW_FIELDS = 'number,title,body,labels,url';
+const PR_VIEW_FIELDS =
+  'number,title,body,url,state,headRefName,baseRefName,isDraft,isCrossRepository';
 
 beforeEach(() => {
   // Reset everything up front so a partial `beforeEach` failure leaves
@@ -203,6 +205,66 @@ describe('cli integration — happy path', () => {
     // not in spawn options. Pin that the worktree path is in there
     // somewhere.
     expect(launchArgv).toContain(wt);
+  });
+});
+
+describe('cli integration — PR handoff (#60)', () => {
+  it('handoff PR #5: detaches a worktree, checks the PR out, writes a PR PROMPT.md', async () => {
+    const { spawn } = fixtures();
+    spawn.expectGh(REPO_VIEW_ARGV, { defaultBranchRef: { name: 'dev' } });
+    spawn.expectGh(['pr', 'view', '5', '--json', PR_VIEW_FIELDS], {
+      number: 5,
+      title: 'Add the thing',
+      body: 'Half-finished — needs tests.',
+      url: 'https://example.test/pull/5',
+      state: 'OPEN',
+      headRefName: 'feature/the-thing',
+      baseRefName: 'dev',
+      isDraft: false,
+      isCrossRepository: false,
+    });
+    // `gh pr checkout` is faked — the unit tests cover its argv and the real
+    // detached-worktree git op separately; here we pin the orchestration.
+    spawn.expect({ command: 'gh', argv: ['pr', 'checkout', '5'], response: { stdout: '' } });
+
+    const exitCode = await cliMain(['PR', '#5']);
+    expect(exitCode).toBe(0);
+
+    // Worktree path derives from the PR's *own* head branch, not a
+    // synthesized `<tool>/pr-N` name.
+    const wt = expectedWorktreePath('the-thing');
+    expect(existsSync(wt)).toBe(true);
+
+    const prompt = readFileSync(join(wt, 'PROMPT.md'), 'utf8');
+    expect(prompt).toContain('## PR #5: Add the thing');
+    expect(prompt).toContain('Workflow contract (PR completion mode)');
+
+    const state = JSON.parse(readFileSync(join(wt, '.handoff', 'state.json'), 'utf8'));
+    expect(state.ref).toEqual({ type: 'pr', number: 5 });
+    expect(state.branch).toBe('feature/the-thing');
+
+    expect(terminalCalls).toHaveLength(1);
+    expect(terminalCalls[0]?.args.join(' ')).toContain('feature/the-thing');
+  });
+
+  it('handoff PR #6: refuses a fork PR with exit 1 and never opens a worktree', async () => {
+    const { spawn } = fixtures();
+    spawn.expectGh(REPO_VIEW_ARGV, { defaultBranchRef: { name: 'dev' } });
+    spawn.expectGh(['pr', 'view', '6', '--json', PR_VIEW_FIELDS], {
+      number: 6,
+      title: 'Fork PR',
+      body: '',
+      url: 'https://example.test/pull/6',
+      state: 'OPEN',
+      headRefName: 'their-branch',
+      baseRefName: 'dev',
+      isDraft: false,
+      isCrossRepository: true,
+    });
+
+    const exitCode = await cliMain(['PR', '#6']);
+    expect(exitCode).toBe(1);
+    expect(terminalCalls).toHaveLength(0);
   });
 });
 

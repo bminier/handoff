@@ -373,6 +373,108 @@ describe('parseInvocation', () => {
     expect(() => parseInvocation(['cleanup'])).toThrow(ArgsError);
   });
 
+  describe('PR refs (#60)', () => {
+    it('parses the "PR #N" two-token form', () => {
+      expect(parseInvocation(['claude', 'PR', '#5'])).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'pr', number: 5 }],
+        loop: false,
+      });
+    });
+
+    it('parses the "pr#N" single-token shorthand', () => {
+      expect(parseInvocation(['claude', 'pr#5'])).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'pr', number: 5 }],
+        loop: false,
+      });
+    });
+
+    it('is case-insensitive on the pr keyword and tolerates a hash-less number', () => {
+      for (const tokens of [
+        ['claude', 'PR#5'],
+        ['claude', 'Pr#5'],
+        ['claude', 'pr', '#5'],
+        ['claude', 'PR', '5'],
+      ]) {
+        expect(parseInvocation(tokens)).toEqual({
+          tool: 'claude',
+          refs: [{ kind: 'pr', number: 5 }],
+          loop: false,
+        });
+      }
+    });
+
+    it('defaults to claude for a tool-less PR ref', () => {
+      expect(parseInvocation(['PR', '#5'])).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'pr', number: 5 }],
+        loop: false,
+      });
+      expect(parseInvocation(['pr#5'])).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'pr', number: 5 }],
+        loop: false,
+      });
+    });
+
+    it('accepts PR refs for codex and copilot — any tool can complete a PR', () => {
+      for (const tool of ['codex', 'copilot'] as const) {
+        expect(parseInvocation([tool, 'PR', '#5'])).toEqual({
+          tool,
+          refs: [{ kind: 'pr', number: 5 }],
+          loop: false,
+        });
+      }
+    });
+
+    it('parses a fleet mixing issue and PR refs', () => {
+      expect(parseInvocation(['claude', '#1', 'PR', '#2', 'pr#3'])).toEqual({
+        tool: 'claude',
+        refs: [
+          { kind: 'issue', number: 1 },
+          { kind: 'pr', number: 2 },
+          { kind: 'pr', number: 3 },
+        ],
+        loop: false,
+      });
+    });
+
+    it('accepts --loop with a PR ref for claude', () => {
+      // #60: the user opted in — a PR handoff can stay resident through the
+      // review cycle. --loop stays claude-only via the existing guard.
+      expect(parseInvocation(['claude', '--loop', 'PR', '#5'])).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'pr', number: 5 }],
+        loop: true,
+      });
+      expect(parseInvocation(['--loop', 'pr#5'])).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'pr', number: 5 }],
+        loop: true,
+      });
+    });
+
+    it('rejects --loop with a PR ref for codex/copilot', () => {
+      expect(() => parseInvocation(['codex', '--loop', 'PR', '#5'])).toThrow(
+        /--loop is only supported/,
+      );
+      expect(() => parseInvocation(['copilot', '--loop', 'pr#5'])).toThrow(
+        /--loop is only supported/,
+      );
+    });
+
+    it('does not mistake a free-form description starting with "pr" for a PR ref', () => {
+      // "pr" followed by a non-number is free-form text, not a PR ref — the
+      // same trade-off the "Issue" keyword has always had.
+      expect(parseInvocation(['claude', 'pr', 'the', 'release'])).toEqual({
+        tool: 'claude',
+        refs: [{ kind: 'freeform', text: 'pr the release' }],
+        loop: false,
+      });
+    });
+  });
+
   describe('telemetry subcommand', () => {
     it('parses enable with no endpoint', () => {
       expect(parseInvocation(['telemetry', 'enable'])).toEqual({
@@ -591,6 +693,22 @@ describe('extractGlobalFlags', () => {
     // handoff --verbose fix the --verbose flag   → --verbose before "fix"
     // is a flag; --verbose after is free-form text.
     expect(extractGlobalFlags(['--verbose', 'fix', 'the', '--verbose', 'flag'])).toEqual({
+      verbose: true,
+      debug: false,
+    });
+  });
+
+  // #60: the ref-scan loop must recognize PR refs too, or a global flag
+  // trailing a PR ref would be misread as the start of free-form mode.
+  it('detects --debug after a "PR #N" two-token ref', () => {
+    expect(extractGlobalFlags(['claude', 'PR', '#5', '--debug'])).toEqual({
+      verbose: false,
+      debug: true,
+    });
+  });
+
+  it('detects --verbose after an omitted-tool pr#N shorthand ref', () => {
+    expect(extractGlobalFlags(['pr#5', '--verbose'])).toEqual({
       verbose: true,
       debug: false,
     });
