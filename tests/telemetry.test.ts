@@ -177,6 +177,18 @@ describe('event constructors — no-PII shape', () => {
     expect(Object.keys(ev.payload).sort()).toEqual([...ALLOWED_KEYS['handoff.start']].sort());
   });
 
+  it('handoff.start accepts the pr refType (#60) without reshaping the payload', () => {
+    const ev = eventStart({
+      tool: 'claude',
+      refType: 'pr',
+      fleet: 1,
+      loop: false,
+      sessionId: 'abc',
+    });
+    expect(ev.payload.refType).toBe('pr');
+    expect(Object.keys(ev.payload).sort()).toEqual([...ALLOWED_KEYS['handoff.start']].sort());
+  });
+
   it('handoff.cleanup emits exactly the allowlisted keys', () => {
     const ev = eventCleanup({ tool: 'codex', outcome: 'merged', durationMs: 12345 });
     expect(ev.name).toBe('handoff.cleanup');
