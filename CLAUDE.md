@@ -95,12 +95,13 @@ Every worktree carries a small per-session metadata directory at its root:
 
 ```jsonc
 {
-  "version": 1,
+  "version": 2,
   "tool": "claude" | "codex" | "copilot",
   "ref": { "type": "issue", "number": 7 } |
-         { "type": "freeform", "text": "..." },
-  // A `{ "type": "pr", "number": 12 }` variant will be added when #10 lands
-  // first-class PR handoffs end-to-end.
+         { "type": "freeform", "text": "..." } |
+         { "type": "pr", "number": 12 },
+  // For a `pr` ref, `branch` is the PR's own head branch (not a synthesized
+  // `<tool>/...` name) — cleanup keeps that branch instead of deleting it.
   "branch": "claude/issue-7",
   "loop": false,
   "createdAt": "2026-04-28T12:00:00.000Z",
@@ -136,7 +137,14 @@ When you add a new event:
 
 Edit the `WORKFLOW_CONTRACT` constant in `src/prompt.ts`. The template is intentionally one big string so it's reviewable as a unit — don't split it into per-tool variants without a strong reason.
 
-There is a second constant, `WORKFLOW_CONTRACT_LOOP`, used when `--loop` is passed (claude only). Keep both as full strings rather than splicing — easier to review the agent's instructions for each mode in one place.
+`src/prompt.ts` carries **four** contract constants, one per (ref-kind × loop) mode `renderPrompt` selects between:
+
+- `WORKFLOW_CONTRACT` — issue / free-form, one-shot (implement → open PR → stop).
+- `WORKFLOW_CONTRACT_LOOP` — issue / free-form with `--loop` (claude only): implement → open PR → stay resident through review.
+- `WORKFLOW_CONTRACT_PR` — a `PR #N` ref: complete an existing PR in place, push to its branch, never `gh pr create`.
+- `WORKFLOW_CONTRACT_PR_LOOP` — a `PR #N` ref with `--loop`: complete the PR, then the review loop.
+
+Keep all four as full strings rather than splicing — easier to review the agent's instructions for each mode in one place. The `_LOOP` and `_PR_LOOP` variants intentionally duplicate the review-loop body for that reason.
 
 ## Out of scope until later
 
