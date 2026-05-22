@@ -135,4 +135,82 @@ describe('renderPrompt', () => {
     });
     expect(out).toContain('_(no body)_');
   });
+
+  it('renders a PR-completion handoff (#60)', () => {
+    const out = renderPrompt({
+      tool: 'codex',
+      repoName: 'handoff',
+      branch: 'feature/the-thing',
+      parentBranch: 'dev',
+      worktreePath: '/work/handoff-the-thing',
+      pr: {
+        number: 5,
+        title: 'Add the thing',
+        body: 'Half-finished — needs tests.',
+        url: 'https://github.com/x/y/pull/5',
+        headBranch: 'feature/the-thing',
+        baseBranch: 'dev',
+        isDraft: false,
+      },
+    });
+    expect(out).toContain('## PR #5: Add the thing');
+    expect(out).toContain('Half-finished — needs tests.');
+    expect(out).toContain('**Head branch:** `feature/the-thing` → **base:** `dev`');
+    expect(out).toContain('Workflow contract (PR completion mode)');
+    // PR mode finishes in place: push to the existing branch, never a new PR.
+    expect(out).toContain('PR updated:');
+    expect(out).toContain('open a new PR');
+    expect(out).not.toContain('## Issue');
+    expect(out).not.toContain('## Task');
+    expect(out).not.toContain('Enter the review loop');
+  });
+
+  it('flags a draft PR without forcing it ready-for-review', () => {
+    const out = renderPrompt({
+      tool: 'claude',
+      repoName: 'handoff',
+      branch: 'feature/draft-pr',
+      parentBranch: 'dev',
+      worktreePath: '/tmp/x',
+      pr: {
+        number: 8,
+        title: 'WIP',
+        body: '',
+        url: 'https://github.com/x/y/pull/8',
+        headBranch: 'feature/draft-pr',
+        baseBranch: 'dev',
+        isDraft: true,
+      },
+    });
+    expect(out).toContain('currently a draft');
+    expect(out).toContain('_(no body)_');
+  });
+
+  it('renders the PR loop contract when loop is true', () => {
+    const out = renderPrompt({
+      tool: 'claude',
+      repoName: 'handoff',
+      branch: 'feature/the-thing',
+      parentBranch: 'dev',
+      worktreePath: '/tmp/x',
+      loop: true,
+      pr: {
+        number: 5,
+        title: 'Add the thing',
+        body: 'body',
+        url: 'https://github.com/x/y/pull/5',
+        headBranch: 'feature/the-thing',
+        baseBranch: 'dev',
+        isDraft: false,
+      },
+    });
+    expect(out).toContain('Workflow contract (PR completion + review loop)');
+    expect(out).toContain('Enter the review loop');
+    expect(out).toContain('[handoff loop] bailing');
+    expect(out).toContain('CONFLICTING');
+    expect(out).toContain('?since=');
+    // It's the PR loop, not the issue loop, and never re-opens a PR.
+    expect(out).not.toContain('Workflow contract (loop mode)');
+    expect(out).toContain('open a new PR');
+  });
 });
