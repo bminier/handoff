@@ -5,21 +5,21 @@ export interface BranchInput {
   tool: Tool;
   /** Issue number → branch tail `issue-<N>`. */
   issueNumber?: number;
-  /** PR number → branch tail `pr-<N>`. */
-  prNumber?: number;
-  /** Free-form slug (already slugified). Used when neither issueNumber nor prNumber is set. */
+  /** Free-form slug (already slugified). Used when issueNumber is not set. */
   slug?: string;
 }
 
-export function branchName({ tool, issueNumber, prNumber, slug }: BranchInput): string {
+/**
+ * Note: PR-as-ref handoffs (issue #60) do **not** synthesize a branch here —
+ * they check out the PR's own head branch so the agent's pushes land on the
+ * PR. `branchName` only covers issue and free-form refs.
+ */
+export function branchName({ tool, issueNumber, slug }: BranchInput): string {
   if (issueNumber !== undefined) {
     return `${tool}/issue-${issueNumber}`;
   }
-  if (prNumber !== undefined) {
-    return `${tool}/pr-${prNumber}`;
-  }
   if (!slug) {
-    throw new Error('branchName: must provide issueNumber, prNumber, or slug');
+    throw new Error('branchName: must provide issueNumber or slug');
   }
   return `${tool}/${slug}`;
 }
@@ -32,7 +32,7 @@ export function branchTail(branch: string): string {
 
 /**
  * True iff `branch` could have been produced by `branchName()` — i.e. the
- * shape is `<tool>/issue-<N>`, `<tool>/pr-<N>`, or `<tool>/<slug>` with
+ * shape is `<tool>/issue-<N>` or `<tool>/<slug>` with
  * `<tool>` ∈ TOOLS and `<slug>` matching the kebab-case form `slugify()`
  * emits (lowercase alphanumeric tokens joined by single dashes, no
  * leading/trailing dashes, no double dashes).
@@ -49,8 +49,8 @@ export function isHandoffBranch(branch: string): boolean {
 
 const HANDOFF_BRANCH_RE = (() => {
   const toolAlternation = TOOLS.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-  // Tail forms (matching branchName): issue-<N>, pr-<N>, or kebab-case slug.
-  const tail = String.raw`(?:issue-\d+|pr-\d+|[a-z0-9]+(?:-[a-z0-9]+)*)`;
+  // Tail forms (matching branchName): issue-<N> or kebab-case slug.
+  const tail = String.raw`(?:issue-\d+|[a-z0-9]+(?:-[a-z0-9]+)*)`;
   return new RegExp(`^(?:${toolAlternation})/${tail}$`);
 })();
 
