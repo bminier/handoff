@@ -226,6 +226,44 @@ describe('cleanup', () => {
     expect(result.message).toContain('branch codex/issue-11 was already gone');
     expect(state.calls.deleteBranch.length).toBe(0);
   });
+
+  it('keeps the head branch when keepBranch is set (#60 PR handoff)', async () => {
+    // PR-as-ref cleanup removes the worktree but must not delete the PR's
+    // own head branch — it belongs to the PR. branchExists/deleteBranch are
+    // never consulted on this path.
+    state.mergedReturn = true;
+    state.worktreeOnDisk = true;
+
+    const result = await cleanup('feature/the-thing', {
+      repoRoot: '/work/handoff',
+      deps,
+      keepBranch: true,
+    });
+
+    expect(result.status).toBe('removed');
+    expect(result.message).toContain('Removed worktree');
+    expect(result.message).toContain('retained branch feature/the-thing (PR head branch)');
+    expect(state.calls.removeWorktree.length).toBe(1);
+    expect(state.calls.branchExists).toEqual([]);
+    expect(state.calls.deleteBranch).toEqual([]);
+  });
+
+  it('keepBranch + force removes the worktree but still retains the branch', async () => {
+    state.worktreeOnDisk = true;
+
+    const result = await cleanup('feature/the-thing', {
+      repoRoot: '/work/handoff',
+      deps,
+      force: true,
+      keepBranch: true,
+    });
+
+    expect(result.status).toBe('removed');
+    expect(result.message).toContain('retained branch feature/the-thing (PR head branch)');
+    expect(result.message).toContain('forced — merge check skipped');
+    expect(state.calls.prMergedFor).toEqual([]);
+    expect(state.calls.deleteBranch).toEqual([]);
+  });
 });
 
 describe('cleanup — production wiring (no opts.deps)', () => {
