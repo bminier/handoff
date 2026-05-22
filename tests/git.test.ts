@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs';
 import {
   GitError,
   branchExists,
+  createDetachedWorktree,
   createWorktree,
   currentRepoRoot,
   deleteBranch,
@@ -155,6 +156,31 @@ describe('createWorktree', () => {
     expect((err as Error).message).toContain('git branch -D feature/x');
     // No partial state on the filesystem — we bailed before `git worktree add`.
     expect(existsSync(linked)).toBe(false);
+  });
+});
+
+describe('createDetachedWorktree', () => {
+  it('creates a worktree in detached-HEAD state with no new branch', async () => {
+    process.chdir(repo.path);
+    const linked = worktreePath({ repoRoot: repo.path, branch: 'feature/the-thing' });
+
+    await createDetachedWorktree(linked);
+
+    expect(existsSync(linked)).toBe(true);
+    // Detached HEAD: `rev-parse --abbrev-ref HEAD` reports the literal
+    // "HEAD". gh pr checkout switches it onto the PR branch afterwards.
+    const head = repo.git(['-C', linked, 'rev-parse', '--abbrev-ref', 'HEAD']).stdout.trim();
+    expect(head).toBe('HEAD');
+  });
+
+  it('rejects when the target path already exists', async () => {
+    // git refuses `worktree add` onto an existing non-empty directory; the
+    // RunError propagates (cli.ts maps it to exit 2).
+    process.chdir(repo.path);
+    const linked = worktreePath({ repoRoot: repo.path, branch: 'feature/the-thing' });
+    await createDetachedWorktree(linked);
+
+    await expect(createDetachedWorktree(linked)).rejects.toThrow();
   });
 });
 
