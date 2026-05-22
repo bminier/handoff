@@ -87,6 +87,18 @@ export async function createWorktree(input: CreateWorktreeInput): Promise<void> 
   await run('git', ['worktree', 'add', '-b', input.branch, input.path, input.base]);
 }
 
+/**
+ * Create a linked worktree in detached-HEAD state at `path`.
+ *
+ * Used by PR-as-ref handoffs (#60): the worktree is created detached, then
+ * `gh pr checkout` switches it onto the PR's own head branch. Unlike
+ * `createWorktree`, this neither creates nor names a branch — the PR already
+ * owns one, and we want the agent's pushes to land on it.
+ */
+export async function createDetachedWorktree(path: string): Promise<void> {
+  await run('git', ['worktree', 'add', '--detach', path]);
+}
+
 export async function removeWorktree(path: string, opts: GitOpts = {}): Promise<void> {
   await run('git', ['worktree', 'remove', '--force', path], cwdOpts(opts));
 }
