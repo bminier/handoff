@@ -6,14 +6,16 @@ import { HandoffError } from './errors.ts';
 
 export const WORKSPACE_DIRNAME = '.handoff';
 export const STATE_FILENAME = 'state.json';
-export const STATE_VERSION = 1;
+// Bumped 1 → 2 when the `pr` ref variant landed (#60). A schema change, so
+// per CLAUDE.md the version moves; `assertStateVersion` then rejects v1
+// state from a pre-#60 worktree rather than silently mis-parsing it.
+export const STATE_VERSION = 2;
 
 export type IssueRefRecord = { type: 'issue'; number: number };
 export type FreeformRefRecord = { type: 'freeform'; text: string };
-// Note: a PrRefRecord variant will be added when first-class PR handoffs land
-// (#10). Until then, only the variants the CLI actually emits live in the
-// union, so the schema and the writer can't drift.
-export type RefRecord = IssueRefRecord | FreeformRefRecord;
+/** An existing PR handed off to be completed in place — see `args.ts:PrRef`. */
+export type PrRefRecord = { type: 'pr'; number: number };
+export type RefRecord = IssueRefRecord | FreeformRefRecord | PrRefRecord;
 
 export interface WorkspaceState {
   version: typeof STATE_VERSION;

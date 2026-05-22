@@ -73,13 +73,34 @@ describe('writeState / readState', () => {
   it('returns null when there is no state file', () => {
     expect(readState(root)).toBeNull();
   });
+
+  it('round-trips a PR ref record (#60)', () => {
+    const state: WorkspaceState = {
+      ...sample(),
+      ref: { type: 'pr', number: 12 },
+      branch: 'feature/the-thing',
+      loop: false,
+    };
+    writeState(root, state);
+    expect(readState(root)).toEqual(state);
+  });
 });
 
 describe('readState schema-version guard', () => {
   it('throws WorkspaceStateError on a state with a future version', () => {
     writeState(root, sample());
-    const future = { ...sample(), version: 2 };
+    const future = { ...sample(), version: STATE_VERSION + 1 };
     writeFileSync(statePath(root), JSON.stringify(future), 'utf8');
+
+    expect(() => readState(root)).toThrow(WorkspaceStateError);
+  });
+
+  it('rejects a pre-#60 v1 state rather than mis-parsing it', () => {
+    // STATE_VERSION moved 1 → 2 when the `pr` ref variant landed. A v1
+    // state file (from a worktree created before #60) must be rejected by
+    // the version guard, not read as if its schema still matched.
+    writeState(root, sample());
+    writeFileSync(statePath(root), JSON.stringify({ ...sample(), version: 1 }), 'utf8');
 
     expect(() => readState(root)).toThrow(WorkspaceStateError);
   });
