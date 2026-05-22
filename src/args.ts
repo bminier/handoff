@@ -10,7 +10,17 @@ export interface FreeFormRef {
   text: string;
 }
 
-export type Ref = IssueRef | FreeFormRef;
+/**
+ * An existing GitHub PR to *complete* (#60). The handoff checks out the PR's
+ * own head branch — see `fetchPullRequest` / `checkoutPullRequest` — so the
+ * agent finishes the work in place rather than opening a new PR.
+ */
+export interface PrRef {
+  kind: 'pr';
+  number: number;
+}
+
+export type Ref = IssueRef | FreeFormRef | PrRef;
 
 export interface ParsedArgs {
   tool: Tool;
@@ -56,27 +66,47 @@ function isTool(value: string): value is Tool {
   return (TOOLS as readonly string[]).includes(value);
 }
 
-function parseIssueToken(
-  tokens: string[],
+/**
+ * Recognize an issue or PR ref starting at `tokens[index]`. Returns the parsed
+ * `Ref` and how many tokens it consumed (1 or 2), or `null` if the token isn't
+ * a ref. Shared by `parseInvocation` and `extractGlobalFlags` so the two
+ * scanners can't drift on what counts as a ref.
+ *
+ * Forms: `#N` (issue), `pr#N` (PR shorthand), `Issue #N` / `PR #N` (two-token,
+ * case-insensitive — the keyword token plus an optionally-`#`-prefixed number).
+ */
+function parseRefToken(
+  tokens: readonly string[],
   index: number,
-): { ref: IssueRef; consumed: number } | null {
+): { ref: Ref; consumed: number } | null {
   const tok = tokens[index];
   if (tok === undefined) return null;
 
-  // "#N"
-  const hashMatch = tok.match(/^#(\d+)$/);
-  if (hashMatch && hashMatch[1] !== undefined) {
-    return { ref: { kind: 'issue', number: Number(hashMatch[1]) }, consumed: 1 };
+  // "#N" — issue, single token
+  const issueHash = tok.match(/^#(\d+)$/);
+  if (issueHash && issueHash[1] !== undefined) {
+    return { ref: { kind: 'issue', number: Number(issueHash[1]) }, consumed: 1 };
   }
 
-  // "Issue #N" → two tokens
+  // "pr#N" / "PR#N" — PR shorthand, single token
+  const prHash = tok.match(/^pr#(\d+)$/i);
+  if (prHash && prHash[1] !== undefined) {
+    return { ref: { kind: 'pr', number: Number(prHash[1]) }, consumed: 1 };
+  }
+
+  // "Issue #N" — issue, two tokens
   if (/^issue$/i.test(tok)) {
-    const next = tokens[index + 1];
-    if (next !== undefined) {
-      const m = next.match(/^#?(\d+)$/);
-      if (m && m[1] !== undefined) {
-        return { ref: { kind: 'issue', number: Number(m[1]) }, consumed: 2 };
-      }
+    const m = tokens[index + 1]?.match(/^#?(\d+)$/);
+    if (m && m[1] !== undefined) {
+      return { ref: { kind: 'issue', number: Number(m[1]) }, consumed: 2 };
+    }
+  }
+
+  // "PR #N" — PR, two tokens (parallel to "Issue #N")
+  if (/^pr$/i.test(tok)) {
+    const m = tokens[index + 1]?.match(/^#?(\d+)$/);
+    if (m && m[1] !== undefined) {
+      return { ref: { kind: 'pr', number: Number(m[1]) }, consumed: 2 };
     }
   }
 
@@ -98,8 +128,8 @@ function stripGlobalFlags(tokens: readonly string[]): string[] {
  * literal `--verbose` inside a free-form task description.
  *
  * Mirrors the scanning loop in parseInvocation: leading flags, then
- * `--loop`/`--verbose`/`--debug`/issue-refs in any order, stopping at the
- * first token that triggers free-form mode.
+ * `--loop`/`--verbose`/`--debug`/issue-or-PR-refs in any order, stopping at
+ * the first token that triggers free-form mode.
  *
  * For `cleanup` and `telemetry` heads there is no free-form mode, so global
  * flags can appear anywhere in the remaining argv — scan to the end. (This
@@ -157,18 +187,12 @@ export function extractGlobalFlags(argv: readonly string[]): { verbose: boolean;
       i++;
       continue;
     }
-    // Issue ref: #N
-    if (/^#\d+$/.test(tok)) {
-      i++;
+    // Issue or PR ref — share parseInvocation's recognizer so the two
+    // scanners can't drift (#N, pr#N, "Issue #N", "PR #N").
+    const parsedRef = parseRefToken(argv, i);
+    if (parsedRef) {
+      i += parsedRef.consumed;
       continue;
-    }
-    // Issue ref: "Issue #N" (two tokens)
-    if (/^issue$/i.test(tok)) {
-      const next = argv[i + 1];
-      if (next !== undefined && /^#?\d+$/.test(next)) {
-        i += 2;
-        continue;
-      }
     }
     // Anything else is the start of free-form mode — stop.
     break;
@@ -275,14 +299,14 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
     throw new ArgsError(
       `Missing reference. Usage: handoff [<tool>] <ref...> ` +
         `(<tool> defaults to ${DEFAULT_TOOL}; ` +
-        `<ref> = #N, "Issue #N", or a free-form task description).`,
+        `<ref> = #N, "Issue #N", "PR #N", or a free-form task description).`,
     );
   }
 
   // Walk tokens once. While we're still in "flag-or-ref" mode, `--loop`,
-  // `--verbose`, and `--debug` may appear anywhere among the issue refs.
-  // The first token that is neither a flag nor an issue-ref pattern flips us
-  // into free-form mode, and from there everything (including a literal
+  // `--verbose`, and `--debug` may appear anywhere among the issue/PR refs.
+  // The first token that is neither a flag nor an issue/PR-ref pattern flips
+  // us into free-form mode, and from there everything (including a literal
   // `--loop` or `--verbose`) becomes part of the description verbatim.
   let loop = false;
   const refs: Ref[] = [];
@@ -312,10 +336,10 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
       i += 1;
       continue;
     }
-    const issue = parseIssueToken(rest, i);
-    if (issue) {
-      refs.push(issue.ref);
-      i += issue.consumed;
+    const parsedRef = parseRefToken(rest, i);
+    if (parsedRef) {
+      refs.push(parsedRef.ref);
+      i += parsedRef.consumed;
       continue;
     }
     // Free-form description: collect all remaining tokens verbatim.
@@ -337,7 +361,7 @@ export function parseInvocation(argv: readonly string[]): CliInvocation {
   if (refs.length === 0) {
     throw new ArgsError(
       `Missing reference. Usage: handoff ${tool} <ref...> ` +
-        `(<ref> = #N, "Issue #N", or a free-form task description).`,
+        `(<ref> = #N, "Issue #N", "PR #N", or a free-form task description).`,
     );
   }
 

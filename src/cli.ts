@@ -16,8 +16,21 @@ import { HandoffError } from './errors.ts';
 import { setDebug, setVerbose, verbose } from './logger.ts';
 import { branchName, worktreePath } from './branch.ts';
 import { cleanup, type CleanupResult } from './cleanup.ts';
-import { createWorktree, mainRepoRoot, repoName } from './git.ts';
-import { defaultBranch, fetchIssue, type IssueDetails } from './github.ts';
+import {
+  createDetachedWorktree,
+  createWorktree,
+  mainRepoRoot,
+  removeWorktree,
+  repoName,
+} from './git.ts';
+import {
+  checkoutPullRequest,
+  defaultBranch,
+  fetchIssue,
+  fetchPullRequest,
+  type IssueDetails,
+  type PullRequestDetails,
+} from './github.ts';
 import { renderPrompt } from './prompt.ts';
 import { RunError } from './run.ts';
 import { slugify } from './slug.ts';
@@ -125,9 +138,18 @@ async function runCleanup(branch: string, force: boolean): Promise<number> {
     }
   }
 
-  verbose(`cleanup: branch = ${branch}, worktree = ${path}, force = ${force}`);
+  // A PR handoff checked the worktree out onto the PR's own head branch —
+  // cleanup must remove the worktree but leave that branch for the PR. The
+  // signal is `.handoff/state.json`; if it's missing/unreadable (safeReadState
+  // returned null) we fall back to deleting, which is correct for the issue /
+  // free-form worktrees that are the only ones a pre-#60 state could describe.
+  const keepBranch = state?.ref.type === 'pr';
+
+  verbose(
+    `cleanup: branch = ${branch}, worktree = ${path}, force = ${force}, keepBranch = ${keepBranch}`,
+  );
   const t0 = Date.now();
-  const result = await cleanup(branch, { repoRoot, force });
+  const result = await cleanup(branch, { repoRoot, force, keepBranch });
   verbose(`cleanup: result = ${result.status}`);
   console.log(result.message);
 
@@ -302,14 +324,27 @@ interface SpawnInput {
 }
 
 async function spawnHandoff(input: SpawnInput): Promise<void> {
+  const ref = input.ref;
   let issue: IssueDetails | undefined;
+  let pr: PullRequestDetails | undefined;
   let branch: string;
-  if (input.ref.kind === 'issue') {
-    verbose(`fetching issue #${input.ref.number}`);
-    issue = await fetchIssue(input.ref.number);
+  // For issue / free-form refs this is the repo's default branch (the worktree
+  // base). For a PR ref it's the PR's *base* branch — the worktree itself is
+  // the PR's head branch, so the agent's pushes land on the PR.
+  let parentBranch = input.parentBranch;
+
+  if (ref.kind === 'issue') {
+    verbose(`fetching issue #${ref.number}`);
+    issue = await fetchIssue(ref.number);
     branch = branchName({ tool: input.tool, issueNumber: issue.number });
+  } else if (ref.kind === 'pr') {
+    verbose(`fetching PR #${ref.number}`);
+    pr = await fetchPullRequest(ref.number);
+    assertPrHandoffable(pr);
+    branch = pr.headRefName;
+    parentBranch = pr.baseRefName;
   } else {
-    const slug = slugify(input.ref.text, { maxLen: 20 });
+    const slug = slugify(ref.text, { maxLen: 20 });
     branch = branchName({ tool: input.tool, slug });
   }
   verbose(`branch: ${branch}`);
@@ -319,18 +354,49 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
   console.log(`[handoff] ${input.tool} → ${branch}`);
   console.log(`           worktree: ${path}`);
 
-  verbose(`creating worktree at ${path}`);
-  await createWorktree({ branch, path, base: input.parentBranch });
+  if (pr) {
+    // A PR handoff checks out the PR's *existing* head branch — create the
+    // worktree detached, then let `gh pr checkout` switch it onto that branch
+    // (it also wires up push tracking so the agent's `git push` hits the PR).
+    verbose(`creating detached worktree at ${path}`);
+    await createDetachedWorktree(path);
+    try {
+      verbose(`checking out PR #${pr.number} into ${path}`);
+      await checkoutPullRequest(pr.number, path);
+    } catch (err) {
+      // The checkout failed after the worktree was created — don't strand a
+      // detached orphan with no branch and no state.json. Best-effort remove.
+      verbose(`PR checkout failed; removing partial worktree ${path}`);
+      await removeWorktree(path).catch(() => {});
+      throw err;
+    }
+  } else {
+    verbose(`creating worktree at ${path}`);
+    await createWorktree({ branch, path, base: parentBranch });
+  }
 
   const promptCtx = {
     tool: input.tool,
     repoName: input.repo,
     branch,
-    parentBranch: input.parentBranch,
+    parentBranch,
     worktreePath: path,
     loop: input.loop,
     ...(issue ? { issue } : {}),
-    ...(input.ref.kind === 'freeform' ? { freeformDescription: input.ref.text } : {}),
+    ...(pr
+      ? {
+          pr: {
+            number: pr.number,
+            title: pr.title,
+            body: pr.body,
+            url: pr.url,
+            headBranch: pr.headRefName,
+            baseBranch: pr.baseRefName,
+            isDraft: pr.isDraft,
+          },
+        }
+      : {}),
+    ...(ref.kind === 'freeform' ? { freeformDescription: ref.text } : {}),
   };
   const promptBody = renderPrompt(promptCtx);
   writeFileSync(join(path, 'PROMPT.md'), promptBody, 'utf8');
@@ -339,7 +405,7 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
   writeState(path, {
     version: STATE_VERSION,
     tool: input.tool,
-    ref: refRecord(input.ref, issue),
+    ref: refRecord(ref, issue),
     branch,
     loop: input.loop,
     createdAt: now,
@@ -357,12 +423,36 @@ async function spawnHandoff(input: SpawnInput): Promise<void> {
   emitFireAndForget(
     eventStart({
       tool: input.tool,
-      refType: input.ref.kind === 'issue' ? 'issue' : 'freeform',
+      refType: ref.kind,
       fleet: input.fleet,
       loop: input.loop,
       sessionId: newSessionId(),
     }),
   );
+}
+
+/**
+ * Refuse PR refs handoff can't work on. A non-open PR has no live branch to
+ * complete; a fork PR's head branch isn't reliably pushable (#60 scopes to
+ * same-repo PRs). Both are user errors — the ref is wrong for a handoff.
+ */
+function assertPrHandoffable(pr: PullRequestDetails): void {
+  if (pr.state !== 'OPEN') {
+    throw new HandoffError(
+      `PR #${pr.number} is ${pr.state}, not open — nothing to complete.`,
+      1,
+      pr.state === 'MERGED'
+        ? 'This PR already merged; hand off a follow-up issue instead.'
+        : 'Reopen the PR, or hand the work off as an issue or free-form task.',
+    );
+  }
+  if (pr.isCrossRepository) {
+    throw new HandoffError(
+      `PR #${pr.number} is from a fork — cross-repo PR handoff isn't supported yet.`,
+      1,
+      "Check the PR's head branch out yourself, or hand the work off as an issue.",
+    );
+  }
 }
 
 function resolveHandoffRoot(): string {
@@ -384,14 +474,25 @@ function resolveRunnerScript(handoffRoot: string): string {
 }
 
 function describeRef(ref: Ref): string {
-  return ref.kind === 'issue' ? `#${ref.number}` : `"${ref.text.slice(0, 40)}"`;
+  switch (ref.kind) {
+    case 'issue':
+      return `#${ref.number}`;
+    case 'pr':
+      return `PR #${ref.number}`;
+    case 'freeform':
+      return `"${ref.text.slice(0, 40)}"`;
+  }
 }
 
 function refRecord(ref: Ref, issue: IssueDetails | undefined): RefRecord {
-  if (ref.kind === 'issue') {
-    return { type: 'issue', number: issue?.number ?? ref.number };
+  switch (ref.kind) {
+    case 'issue':
+      return { type: 'issue', number: issue?.number ?? ref.number };
+    case 'pr':
+      return { type: 'pr', number: ref.number };
+    case 'freeform':
+      return { type: 'freeform', text: ref.text };
   }
-  return { type: 'freeform', text: ref.text };
 }
 
 function errorCode(err: unknown): string {
