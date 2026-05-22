@@ -97,7 +97,9 @@ export function serializeConfig(config: TelemetryConfig): string {
 
 // ---------- pure: events ----------
 
-export type RefType = 'issue' | 'freeform';
+// `pr` was added with PR-as-ref handoffs (#60). It mirrors `args.ts:Ref`'s
+// `kind` — no PII either way, so widening the union needs no event reshape.
+export type RefType = 'issue' | 'freeform' | 'pr';
 /**
  * Outcome of a `handoff cleanup` invocation.
  * - `merged`:   PR was merged → worktree + branch removed.
